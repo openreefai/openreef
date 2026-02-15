@@ -26,6 +26,8 @@ import {
   removeBinding,
   setAgentToAgent,
   removeAgentToAgent,
+  getConfiguredChannels,
+  extractChannelType,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -244,6 +246,21 @@ async function _update(
     return;
   }
 
+  // 5b. Classify net-new add bindings by channel availability
+  const { config: currentConfig } = await readConfig();
+  const configuredChannels = getConfiguredChannels(currentConfig);
+
+  const addBindingsWithStatus = plan.bindings
+    .filter(b => b.type === 'add')
+    .map(b => {
+      const channelType = extractChannelType(b.binding.match.channel);
+      const status = configuredChannels === null ? 'unknown' as const
+        : configuredChannels.has(channelType) ? 'configured' as const
+        : 'unconfigured' as const;
+      return { change: b, channelType, status };
+    });
+  const removeBindings = plan.bindings.filter(b => b.type === 'remove');
+
   // 6. Print migration plan
   console.log('');
   const versionStr = plan.versionChange
@@ -279,10 +296,17 @@ async function _update(
   if (plan.bindings.length > 0) {
     console.log('');
     console.log(label('Bindings:'));
-    for (const b of plan.bindings) {
-      const prefix = b.type === 'add' ? chalk.green('+') : chalk.red('-');
+    for (const item of addBindingsWithStatus) {
+      const annotation = item.status === 'unconfigured'
+        ? chalk.dim(' (channel not configured — will be skipped)')
+        : '';
       console.log(
-        `  ${prefix} ${b.binding.match.channel} → ${b.binding.agentId}`,
+        `  ${chalk.green('+')} ${item.change.binding.match.channel} → ${item.change.binding.agentId}${annotation}`,
+      );
+    }
+    for (const b of removeBindings) {
+      console.log(
+        `  ${chalk.red('-')} ${b.binding.match.channel} → ${b.binding.agentId}`,
       );
     }
   }
@@ -321,6 +345,23 @@ async function _update(
     }
   }
 
+  // Check if all net-new adds would be skipped with nothing else to do
+  const allAddsUnconfigured = addBindingsWithStatus.length > 0 &&
+    addBindingsWithStatus.every(b => b.status === 'unconfigured');
+  const hasOtherChanges = plan.agents.some(a => a.type !== 'unchanged') ||
+    plan.cron.length > 0 ||
+    plan.a2a.length > 0 ||
+    plan.versionChange !== null ||
+    removeBindings.length > 0;
+
+  if (allAddsUnconfigured && !hasOtherChanges) {
+    console.log('');
+    console.log(
+      `No applicable changes (${addBindingsWithStatus.length} new binding${addBindingsWithStatus.length !== 1 ? 's' : ''} skipped — unconfigured channels).`,
+    );
+    return;
+  }
+
   // 7. Dry run
   if (options.dryRun) {
     console.log('');
@@ -328,8 +369,45 @@ async function _update(
     return;
   }
 
-  // 8. Confirm
-  if (!options.yes) {
+  // 8. Channel-aware filtering for net-new bindings + confirm
+  let finalAddBindings = addBindingsWithStatus.map(b => b.change);
+
+  if (options.yes) {
+    // Auto-skip unconfigured adds
+    finalAddBindings = addBindingsWithStatus
+      .filter(b => b.status !== 'unconfigured')
+      .map(b => b.change);
+
+    // Log per-channel-type warnings
+    const skippedTypes = [...new Set(
+      addBindingsWithStatus
+        .filter(b => b.status === 'unconfigured')
+        .map(b => b.channelType),
+    )].sort();
+    for (const ct of skippedTypes) {
+      console.log(
+        `${icons.warning} ${chalk.yellow(`Skipping bindings for unconfigured channel: ${ct}`)}`,
+      );
+    }
+  } else {
+    // Interactive path: checkbox for add bindings if unconfigured exist
+    const hasUnconfigured = addBindingsWithStatus.some(
+      b => b.status === 'unconfigured',
+    );
+    if (hasUnconfigured) {
+      const { checkbox } = await import('@inquirer/prompts');
+      const choices = addBindingsWithStatus.map(b => ({
+        name: `${b.change.binding.match.channel} → ${b.change.binding.agentId} [${b.status}]`,
+        value: b,
+        checked: b.status !== 'unconfigured',
+      }));
+      const selected = await checkbox({
+        message: 'Select new bindings to add (unconfigured channels are unchecked):',
+        choices,
+      });
+      finalAddBindings = selected.map(b => b.change);
+    }
+
     console.log('');
     const { confirm } = await import('@inquirer/prompts');
     const proceed = await confirm({
@@ -340,6 +418,8 @@ async function _update(
       process.exit(0);
     }
   }
+
+  const skippedCount = addBindingsWithStatus.length - finalAddBindings.length;
 
   // 9. Execute migration
   const deploySpinner = ora('Applying migration...').start();
@@ -491,7 +571,7 @@ async function _update(
       model: agentDef.model,
     });
   }
-  for (const b of plan.bindings.filter((b) => b.type === 'add')) {
+  for (const b of finalAddBindings) {
     patchedConfig = addBinding(patchedConfig, b.binding);
     openClawBindings.push(b.binding);
   }
@@ -638,7 +718,17 @@ async function _update(
   if (added > 0) parts.push(`${added} added`);
   if (removed > 0) parts.push(`${removed} removed`);
   if (updated > 0) parts.push(`${updated} updated`);
-  if (plan.bindings.length > 0) parts.push(`${plan.bindings.length} binding changes`);
+  const bindingChangeCount = finalAddBindings.length + removeBindings.length;
+  if (bindingChangeCount > 0 || skippedCount > 0) {
+    const skippedSuffix = skippedCount > 0
+      ? `, ${skippedCount} skipped (unconfigured channels)`
+      : '';
+    if (bindingChangeCount > 0) {
+      parts.push(`${bindingChangeCount} binding changes${skippedSuffix}`);
+    } else if (skippedCount > 0) {
+      parts.push(`${skippedCount} bindings skipped (unconfigured channels)`);
+    }
+  }
   if (plan.cron.length > 0) parts.push(`${plan.cron.length} cron changes`);
 
   console.log(

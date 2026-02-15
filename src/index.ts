@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name('reef')
   .description('OpenReef CLI — package and deploy multi-agent formations')
-  .version('0.3.4');
+  .version('0.3.5');
 
 program
   .command('init [name]')
