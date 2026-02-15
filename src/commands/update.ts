@@ -59,6 +59,8 @@ export interface UpdateOptions {
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
+  registryUrl?: string;
+  skipCache?: boolean;
 }
 
 const TOKEN_RE = /\{\{\w+\}\}/;
@@ -83,10 +85,13 @@ export async function update(
   inputPath: string,
   options: UpdateOptions,
 ): Promise<void> {
-  // Resolve tarball to directory if needed
-  const { formationPath, tempDir } = await resolveFormationPath(inputPath);
+  // Resolve tarball, local path, or registry name to directory
+  const { formationPath, tempDir, registryRef } = await resolveFormationPath(
+    inputPath,
+    { registryUrl: options.registryUrl, skipCache: options.skipCache },
+  );
   try {
-    await _update(formationPath, options);
+    await _update(formationPath, options, registryRef);
   } finally {
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -97,6 +102,7 @@ export async function update(
 async function _update(
   formationPath: string,
   options: UpdateOptions,
+  registryRef?: { name: string; version: string },
 ): Promise<void> {
   // 1. Parse + validate manifest
   const spinner = ora('Loading formation...').start();
@@ -250,6 +256,18 @@ async function _update(
   );
 
   if (plan.isEmpty) {
+    // Even when content is unchanged, registryRef may need updating
+    // (e.g., switching from registry source to local source or vice versa)
+    const registryRefChanged =
+      JSON.stringify(existingState.registryRef) !==
+      JSON.stringify(registryRef);
+    if (registryRefChanged) {
+      const patchedState: FormationState = {
+        ...existingState,
+        registryRef,
+      };
+      await saveState(patchedState);
+    }
     console.log(
       `${icons.success} ${chalk.green('Already up to date.')}`,
     );
@@ -760,6 +778,7 @@ async function _update(
     agentToAgent: a2aState.allowAdded ? a2aState : undefined,
     sourcePath: formationPath,
     agentToAgentEdges: manifest.agentToAgent ?? undefined,
+    registryRef,
   };
 
   await saveState(updatedState);

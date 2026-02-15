@@ -1,9 +1,12 @@
 import { mkdtemp, writeFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { create as createTar } from 'tar';
 import { install } from '../../src/commands/install.js';
+import { registryCacheDir } from '../../src/core/registry.js';
 import { createMockGateway, type MockGateway } from '../helpers/mock-gateway.js';
 
 let tempHome: string;
@@ -755,5 +758,248 @@ describe('reef install', () => {
     expect(soulContent).toContain('- **web-search** (^1.2.0)');
     expect(soulContent).toContain('- **calculator**');
     expect(soulContent).not.toContain('{{tools}}');
+  });
+});
+
+// ── Registry integration tests ──
+
+describe('reef install (registry)', () => {
+  let tempHome: string;
+  let registryFormationDir: string;
+  let tarballPath: string;
+  let tarballSha256: string;
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(async () => {
+    tempHome = await mkdtemp(join(tmpdir(), 'reef-reg-install-'));
+    process.env.OPENCLAW_STATE_DIR = tempHome;
+    process.env.OPENCLAW_CONFIG_PATH = join(tempHome, 'openclaw.json');
+    originalFetch = globalThis.fetch;
+
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify({ agents: { list: [] }, bindings: [] }),
+    );
+
+    // Create a formation directory and pack it into a tarball
+    registryFormationDir = join(tempHome, 'reg-formation');
+    await mkdir(join(registryFormationDir, 'agents', 'worker'), {
+      recursive: true,
+    });
+    await writeFile(
+      join(registryFormationDir, 'agents', 'worker', 'SOUL.md'),
+      'You are a registry worker.',
+    );
+    await writeFile(
+      join(registryFormationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'daily-ops',
+        version: '1.2.0',
+        description: 'Daily operations',
+        namespace: 'ops',
+        agents: {
+          worker: {
+            source: 'agents/worker',
+            description: 'Does work',
+          },
+        },
+      }),
+    );
+
+    // Create tarball
+    tarballPath = join(tempHome, 'daily-ops-1.2.0.reef.tar.gz');
+    await createTar(
+      { gzip: true, file: tarballPath, cwd: registryFormationDir },
+      ['.'],
+    );
+
+    // Compute sha256
+    const tarballContent = await readFile(tarballPath);
+    tarballSha256 = createHash('sha256').update(tarballContent).digest('hex');
+  });
+
+  afterEach(async () => {
+    globalThis.fetch = originalFetch;
+    delete process.env.OPENCLAW_STATE_DIR;
+    delete process.env.OPENCLAW_CONFIG_PATH;
+    await rm(tempHome, { recursive: true, force: true }).catch(() => {});
+  });
+
+  function mockRegistryFetch(registryUrl: string) {
+    const registryIndex = {
+      version: 1,
+      formations: {
+        'daily-ops': {
+          description: 'Daily operations',
+          latest: '1.2.0',
+          versions: {
+            '1.2.0': {
+              url: 'https://example.com/daily-ops-1.2.0.reef.tar.gz',
+              sha256: tarballSha256,
+            },
+          },
+        },
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url === registryUrl) {
+        return {
+          ok: true,
+          json: () => Promise.resolve(registryIndex),
+        };
+      }
+      if (url === 'https://example.com/daily-ops-1.2.0.reef.tar.gz') {
+        const content = await readFile(tarballPath);
+        return {
+          ok: true,
+          arrayBuffer: () =>
+            Promise.resolve(
+              content.buffer.slice(
+                content.byteOffset,
+                content.byteOffset + content.byteLength,
+              ),
+            ),
+        };
+      }
+      return { ok: false, status: 404, statusText: 'Not Found' };
+    }) as unknown as typeof fetch;
+  }
+
+  it('installs by bare name from registry', async () => {
+    mockRegistryFetch('https://registry.example.com/index.json');
+
+    await install('daily-ops', {
+      yes: true,
+      registryUrl: 'https://registry.example.com/index.json',
+    });
+
+    // Verify agent was deployed
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const agentsList = config.agents.list as Record<string, unknown>[];
+    const workerAgent = agentsList.find((a) => a.id === 'ops-worker');
+    expect(workerAgent).toBeDefined();
+
+    // Verify workspace exists
+    const workspaceDir = join(tempHome, 'workspace-ops-worker');
+    expect(existsSync(workspaceDir)).toBe(true);
+
+    // Verify state
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'ops--daily-ops.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.name).toBe('daily-ops');
+    expect(state.registryRef).toEqual({ name: 'daily-ops', version: '1.2.0' });
+  });
+
+  it('installs with @version syntax', async () => {
+    mockRegistryFetch('https://registry.example.com/index.json');
+
+    await install('daily-ops@1.2.0', {
+      yes: true,
+      registryUrl: 'https://registry.example.com/index.json',
+    });
+
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'ops--daily-ops.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.registryRef).toEqual({ name: 'daily-ops', version: '1.2.0' });
+  });
+
+  it('throws error for unknown formation name', async () => {
+    const registryIndex = {
+      version: 1,
+      formations: {},
+    };
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(registryIndex),
+    }) as unknown as typeof fetch;
+
+    await expect(
+      install('nonexistent', {
+        yes: true,
+        registryUrl: 'https://registry.example.com/index.json',
+      }),
+    ).rejects.toThrow(/not found in registry/);
+  });
+
+  it('local directory takes precedence over registry', async () => {
+    // Create a local ./daily-ops directory with reef.json
+    const localDir = join(tempHome, 'local-project');
+    await mkdir(localDir, { recursive: true });
+    const localFormation = join(localDir, 'daily-ops');
+    await mkdir(join(localFormation, 'agents', 'local-worker'), {
+      recursive: true,
+    });
+    await writeFile(
+      join(localFormation, 'agents', 'local-worker', 'SOUL.md'),
+      'You are a LOCAL worker.',
+    );
+    await writeFile(
+      join(localFormation, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'daily-ops',
+        version: '0.0.1',
+        description: 'Local daily ops',
+        namespace: 'local',
+        agents: {
+          'local-worker': {
+            source: 'agents/local-worker',
+            description: 'Local agent',
+          },
+        },
+      }),
+    );
+
+    // Mock fetch — should NOT be called since local takes precedence
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+
+    await install(localFormation, {
+      yes: true,
+      registryUrl: 'https://registry.example.com/index.json',
+    });
+
+    // Fetch should not have been called (local path existed)
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    // Verify local formation was used
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'local--daily-ops.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.version).toBe('0.0.1');
+    expect(state.registryRef).toBeUndefined();
+  });
+
+  it('cache separation — different registry URLs get separate caches', async () => {
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    const dir1 = registryCacheDir('https://registry1.example.com/index.json', env);
+    const dir2 = registryCacheDir('https://registry2.example.com/index.json', env);
+    expect(dir1).not.toBe(dir2);
+
+    // Both should be under .reef/cache/ but with different hashes
+    expect(dir1).toContain(join('.reef', 'cache'));
+    expect(dir2).toContain(join('.reef', 'cache'));
   });
 });

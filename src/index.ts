@@ -78,8 +78,8 @@ program
   });
 
 program
-  .command('install <path>')
-  .description('Deploy a formation to OpenClaw')
+  .command('install <source>')
+  .description('Deploy a formation (path, tarball, or registry name)')
   .option('--set <key=value...>', 'Set variable values')
   .option('--namespace <ns>', 'Override namespace (default: manifest.namespace)')
   .option('--force', 'Remove existing resources and recreate')
@@ -88,12 +88,17 @@ program
   .option('--no-env', 'Skip loading .env file')
   .option('--dry-run', 'Preview changes without applying them')
   .option('--allow-channel-shadow', 'Allow bare bindings that shadow the main agent')
+  .option('--registry <url>', 'Registry URL')
+  .option('--skip-cache', 'Skip registry cache')
   .option('--gateway-url <url>', 'Gateway WebSocket URL')
   .option('--gateway-token <token>', 'Gateway auth token')
   .option('--gateway-password <password>', 'Gateway auth password')
-  .action(async (path, options) => {
+  .action(async (source, options) => {
     try {
-      await install(path, options);
+      await install(source, {
+        ...options,
+        registryUrl: options.registry,
+      });
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);
@@ -118,20 +123,25 @@ program
   });
 
 program
-  .command('update <path>')
-  .description('Update an installed formation from a new manifest')
+  .command('update <source>')
+  .description('Update an installed formation (path, tarball, or registry name)')
   .option('--set <key=value...>', 'Set variable values')
   .option('--namespace <ns>', 'Override namespace')
   .option('--yes', 'Skip confirmation')
   .option('--no-env', 'Skip loading .env file')
   .option('--dry-run', 'Preview changes without applying them')
   .option('--allow-channel-shadow', 'Allow bare bindings that shadow the main agent')
+  .option('--registry <url>', 'Registry URL')
+  .option('--skip-cache', 'Skip registry cache')
   .option('--gateway-url <url>', 'Gateway WebSocket URL')
   .option('--gateway-token <token>', 'Gateway auth token')
   .option('--gateway-password <password>', 'Gateway auth password')
-  .action(async (path, options) => {
+  .action(async (source, options) => {
     try {
-      await update(path, options);
+      await update(source, {
+        ...options,
+        registryUrl: options.registry,
+      });
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);

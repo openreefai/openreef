@@ -58,6 +58,8 @@ export interface InstallOptions {
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
+  registryUrl?: string;
+  skipCache?: boolean;
 }
 
 const TOKEN_RE = /\{\{\w+\}\}/;
@@ -82,10 +84,13 @@ export async function install(
   inputPath: string,
   options: InstallOptions,
 ): Promise<void> {
-  // Resolve tarball to directory if needed
-  const { formationPath, tempDir } = await resolveFormationPath(inputPath);
+  // Resolve tarball, local path, or registry name to directory
+  const { formationPath, tempDir, registryRef } = await resolveFormationPath(
+    inputPath,
+    { registryUrl: options.registryUrl, skipCache: options.skipCache },
+  );
   try {
-    await _install(formationPath, options);
+    await _install(formationPath, options, registryRef);
   } finally {
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -96,6 +101,7 @@ export async function install(
 async function _install(
   formationPath: string,
   options: InstallOptions,
+  registryRef?: { name: string; version: string },
 ): Promise<void> {
   // ── Phase 1: Parse + Validate IDs ──
   const spinner = ora('Loading formation...').start();
@@ -903,6 +909,7 @@ async function _install(
     agentToAgent: a2aState.allowAdded ? a2aState : undefined,
     sourcePath: formationPath,
     agentToAgentEdges: manifest.agentToAgent ?? undefined,
+    registryRef,
   };
 
   await saveState(state);

@@ -15,6 +15,7 @@ export interface FormationState {
   sourcePath?: string;
   updatedAt?: string;
   agentToAgentEdges?: Record<string, string[]>;
+  registryRef?: { name: string; version: string };
 }
 
 export interface AgentState {
