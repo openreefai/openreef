@@ -34,6 +34,7 @@ import {
   deleteState,
   listStates,
   computeFileHash,
+  persistSourceSnapshot,
 } from '../core/state-manager.js';
 import { generateAgentsMd } from '../core/agents-md-generator.js';
 import { listFiles } from '../utils/fs.js';
@@ -896,6 +897,9 @@ async function _install(
     }
   }
 
+  // Persist source snapshot so sourcePath survives temp dir cleanup
+  const snapshotPath = await persistSourceSnapshot(formationPath, namespace, manifest.name);
+
   const state: FormationState = {
     name: manifest.name,
     version: manifest.version,
@@ -907,7 +911,7 @@ async function _install(
     variables: variablesForState,
     fileHashes,
     agentToAgent: a2aState.allowAdded ? a2aState : undefined,
-    sourcePath: formationPath,
+    sourcePath: snapshotPath,
     agentToAgentEdges: manifest.agentToAgent ?? undefined,
     registryRef,
   };

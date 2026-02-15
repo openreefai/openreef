@@ -4,10 +4,15 @@ import {
   unlink,
   readdir,
   mkdir,
+  rm,
+  rename,
+  mkdtemp,
 } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { existsSync } from 'node:fs';
 import { resolveReefStateDir } from './openclaw-paths.js';
+import { copyDir } from '../utils/fs.js';
 import type { FormationState } from '../types/state.js';
 
 function stateFileName(namespace: string, name: string): string {
@@ -80,4 +85,75 @@ export async function listStates(
 
 export function computeFileHash(content: Buffer): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+export function sourceSnapshotDir(
+  namespace: string,
+  name: string,
+  env?: NodeJS.ProcessEnv,
+): string {
+  const dir = resolveReefStateDir(env);
+  return join(dir, 'sources', `${namespace}--${name}`);
+}
+
+export async function persistSourceSnapshot(
+  formationPath: string,
+  namespace: string,
+  name: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
+  const snapshotDir = sourceSnapshotDir(namespace, name, env);
+
+  const srcAbs = resolve(formationPath);
+  const dstAbs = resolve(snapshotDir);
+
+  // Exact equality: source is already the snapshot, no-op
+  if (srcAbs === dstAbs) {
+    return snapshotDir;
+  }
+
+  // Containment: throw — programming error or corrupted state
+  if (srcAbs.startsWith(dstAbs + sep) || dstAbs.startsWith(srcAbs + sep)) {
+    throw new Error(
+      `Cannot persist source snapshot: paths overlap (src=${srcAbs}, dst=${dstAbs})`,
+    );
+  }
+
+  // Atomic write: copy to temp dir, then rename to final location
+  const sourcesParent = join(resolveReefStateDir(env), 'sources');
+  await mkdir(sourcesParent, { recursive: true });
+  const tmpDir = await mkdtemp(join(sourcesParent, `${namespace}--${name}.tmp-`));
+  try {
+    await copyDir(formationPath, tmpDir);
+    // Backup-rename swap for durability
+    const bakDir = snapshotDir + '.bak';
+    const hadOld = existsSync(snapshotDir);
+    if (hadOld) {
+      await rm(bakDir, { recursive: true, force: true }).catch(() => {});
+      await rename(snapshotDir, bakDir);
+    }
+    try {
+      await rename(tmpDir, snapshotDir);
+    } catch (renameErr) {
+      if (hadOld) await rename(bakDir, snapshotDir).catch(() => {});
+      throw renameErr;
+    }
+    if (hadOld) {
+      await rm(bakDir, { recursive: true, force: true }).catch(() => {});
+    }
+  } catch (err) {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
+
+  return snapshotDir;
+}
+
+export async function deleteSourceSnapshot(
+  namespace: string,
+  name: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<void> {
+  const snapshotDir = sourceSnapshotDir(namespace, name, env);
+  await rm(snapshotDir, { recursive: true, force: true }).catch(() => {});
 }

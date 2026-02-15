@@ -12,6 +12,8 @@ import { status } from './commands/status.js';
 import { repair } from './commands/repair.js';
 import { update } from './commands/update.js';
 import { logs } from './commands/logs.js';
+import { lock } from './commands/lock.js';
+import { exportFormation } from './commands/export.js';
 import { VERSION } from './version.js';
 
 const program = new Command();
@@ -54,6 +56,7 @@ program
   .description('Run schema and structural validation on a formation')
   .option('--quiet', 'Suppress output, exit code only')
   .option('--json', 'Output results as JSON')
+  .option('--deployed', 'Validate deployed formation state instead of source')
   .action(async (path, options) => {
     try {
       const result = await validate(path, options);
@@ -208,6 +211,32 @@ program
   .action(async (identifier, options) => {
     try {
       await status(identifier, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('export <identifier>')
+  .description('Export a deployed formation source to a local directory')
+  .option('--output <dir>', 'Output directory (default: ./{formation-name})')
+  .option('--force', 'Overwrite existing output directory')
+  .action(async (identifier, options) => {
+    try {
+      await exportFormation(identifier, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('lock <identifier>')
+  .description('Pin formation versions via ClawHub')
+  .action(async (identifier) => {
+    try {
+      await lock(identifier);
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -8,6 +9,9 @@ import {
   deleteState,
   listStates,
   computeFileHash,
+  persistSourceSnapshot,
+  deleteSourceSnapshot,
+  sourceSnapshotDir,
 } from '../../src/core/state-manager.js';
 import type { FormationState } from '../../src/types/state.js';
 
@@ -164,6 +168,84 @@ describe('state-manager', () => {
       const hash1 = computeFileHash(Buffer.from('content A'));
       const hash2 = computeFileHash(Buffer.from('content B'));
       expect(hash1).not.toBe(hash2);
+    });
+  });
+
+  // ─── persistSourceSnapshot ─────────────────────────────────────
+  describe('persistSourceSnapshot', () => {
+    it('copies formation source to snapshot dir', async () => {
+      const srcDir = join(tempDir, 'formation-src');
+      await mkdir(srcDir, { recursive: true });
+      await writeFile(join(srcDir, 'reef.json'), '{"name":"test"}');
+      await mkdir(join(srcDir, 'agents', 'worker'), { recursive: true });
+      await writeFile(join(srcDir, 'agents', 'worker', 'SOUL.md'), '# Worker');
+
+      const result = await persistSourceSnapshot(srcDir, 'ns', 'test', env);
+
+      expect(result).toBe(sourceSnapshotDir('ns', 'test', env));
+      expect(existsSync(join(result, 'reef.json'))).toBe(true);
+      expect(existsSync(join(result, 'agents', 'worker', 'SOUL.md'))).toBe(true);
+      const content = await readFile(join(result, 'reef.json'), 'utf-8');
+      expect(content).toBe('{"name":"test"}');
+    });
+
+    it('atomically replaces old snapshot', async () => {
+      const srcDir = join(tempDir, 'formation-src');
+      await mkdir(srcDir, { recursive: true });
+      await writeFile(join(srcDir, 'reef.json'), '{"version":"1.0"}');
+
+      await persistSourceSnapshot(srcDir, 'ns', 'test', env);
+
+      // Update source and re-snapshot
+      await writeFile(join(srcDir, 'reef.json'), '{"version":"2.0"}');
+      const result = await persistSourceSnapshot(srcDir, 'ns', 'test', env);
+
+      const content = await readFile(join(result, 'reef.json'), 'utf-8');
+      expect(content).toBe('{"version":"2.0"}');
+    });
+
+    it('no-op when formationPath equals snapshotDir', async () => {
+      const snapshotDir = sourceSnapshotDir('ns', 'test', env);
+      await mkdir(snapshotDir, { recursive: true });
+      await writeFile(join(snapshotDir, 'reef.json'), '{"name":"test"}');
+
+      const result = await persistSourceSnapshot(snapshotDir, 'ns', 'test', env);
+      expect(result).toBe(snapshotDir);
+      // File should still exist unchanged
+      const content = await readFile(join(result, 'reef.json'), 'utf-8');
+      expect(content).toBe('{"name":"test"}');
+    });
+
+    it('throws on path overlap (containment)', async () => {
+      const snapshotDir = sourceSnapshotDir('ns', 'test', env);
+      const childPath = join(snapshotDir, 'subdir');
+      await mkdir(childPath, { recursive: true });
+
+      await expect(
+        persistSourceSnapshot(childPath, 'ns', 'test', env),
+      ).rejects.toThrow('paths overlap');
+    });
+  });
+
+  // ─── deleteSourceSnapshot ──────────────────────────────────────
+  describe('deleteSourceSnapshot', () => {
+    it('removes the snapshot directory', async () => {
+      const srcDir = join(tempDir, 'formation-src');
+      await mkdir(srcDir, { recursive: true });
+      await writeFile(join(srcDir, 'reef.json'), '{}');
+
+      await persistSourceSnapshot(srcDir, 'ns', 'test', env);
+      const snapshotDir = sourceSnapshotDir('ns', 'test', env);
+      expect(existsSync(snapshotDir)).toBe(true);
+
+      await deleteSourceSnapshot('ns', 'test', env);
+      expect(existsSync(snapshotDir)).toBe(false);
+    });
+
+    it('no error if snapshot does not exist', async () => {
+      await expect(
+        deleteSourceSnapshot('ns', 'nonexistent', env),
+      ).resolves.toBeUndefined();
     });
   });
 });

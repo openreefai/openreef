@@ -15,6 +15,7 @@ import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
   deleteState,
   listStates,
+  deleteSourceSnapshot,
 } from '../core/state-manager.js';
 import { icons, header, label, value } from '../utils/output.js';
 import {
@@ -206,8 +207,9 @@ export async function uninstall(
     }
   }
 
-  // 8. Delete state
+  // 8. Delete state and source snapshot
   await deleteState(state.namespace, state.name);
+  await deleteSourceSnapshot(state.namespace, state.name);
 
   spinner.succeed('Formation uninstalled');
   console.log('');

@@ -246,8 +246,7 @@ Channel routing rules for connecting agents to external channels (e.g., Slack, e
   "bindings": [
     {
       "channel": "slack:#support",
-      "agent": "triage",
-      "direction": "bidirectional"
+      "agent": "triage"
     }
   ]
 }
@@ -257,7 +256,6 @@ Channel routing rules for connecting agents to external channels (e.g., Slack, e
 |----------|------|----------|-------------|
 | `channel` | `string` | Yes | Channel identifier |
 | `agent` | `string` | Yes | Agent slug to bind |
-| `direction` | `string` | No | `"inbound"`, `"outbound"`, or `"bidirectional"` (default: `"bidirectional"`) |
 
 ### Cron
 
@@ -715,8 +713,7 @@ A full `reef.json` for a customer support team formation:
   "bindings": [
     {
       "channel": "slack:#support",
-      "agent": "triage",
-      "direction": "bidirectional"
+      "agent": "triage"
     }
   ],
   "cron": [

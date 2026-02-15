@@ -36,6 +36,7 @@ import {
   saveState,
   listStates,
   computeFileHash,
+  persistSourceSnapshot,
 } from '../core/state-manager.js';
 import { generateAgentsMd } from '../core/agents-md-generator.js';
 import { listFiles } from '../utils/fs.js';
@@ -256,15 +257,20 @@ async function _update(
   );
 
   if (plan.isEmpty) {
-    // Even when content is unchanged, registryRef may need updating
-    // (e.g., switching from registry source to local source or vice versa)
+    // Always persist snapshot — even on no-op — to fix dead sourcePath
+    // from prior registry/tarball installs
+    const snapshotPath = await persistSourceSnapshot(
+      formationPath, namespace, manifest.name,
+    );
     const registryRefChanged =
       JSON.stringify(existingState.registryRef) !==
       JSON.stringify(registryRef);
-    if (registryRefChanged) {
+    const sourcePathChanged = existingState.sourcePath !== snapshotPath;
+    if (registryRefChanged || sourcePathChanged) {
       const patchedState: FormationState = {
         ...existingState,
         registryRef,
+        sourcePath: snapshotPath,
       };
       await saveState(patchedState);
     }
@@ -764,6 +770,9 @@ async function _update(
     a2aState.allowAdded = true;
   }
 
+  // Persist source snapshot so sourcePath survives temp dir cleanup
+  const snapshotPath = await persistSourceSnapshot(formationPath, namespace, manifest.name);
+
   const updatedState: FormationState = {
     name: manifest.name,
     version: manifest.version,
@@ -776,7 +785,7 @@ async function _update(
     variables: variablesForState,
     fileHashes,
     agentToAgent: a2aState.allowAdded ? a2aState : undefined,
-    sourcePath: formationPath,
+    sourcePath: snapshotPath,
     agentToAgentEdges: manifest.agentToAgent ?? undefined,
     registryRef,
   };
