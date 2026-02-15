@@ -89,7 +89,7 @@ A single JSON file declares your entire formation:
   "description": "A research team with a manager and researcher",
   "namespace": "my-team",
   "variables": {
-    "OPENAI_API_KEY": {
+    "ANTHROPIC_API_KEY": {
       "type": "string",
       "required": true,
       "sensitive": true
@@ -104,14 +104,14 @@ A single JSON file declares your entire formation:
       "source": "agents/manager",
       "description": "Coordinates the team and delegates tasks",
       "role": "coordinator",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-opus-4-6",
       "tools": { "allow": ["web-search", "file-read"] }
     },
     "researcher": {
       "source": "agents/researcher",
       "description": "Conducts deep research on assigned topics",
       "role": "researcher",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-sonnet-4-5",
       "tools": { "allow": ["web-search"] }
     }
   },

@@ -168,7 +168,7 @@ Each agent is defined as a key-value pair in the `agents` object, where the key 
       "source": "agents/manager",
       "description": "Coordinates the team and delegates tasks",
       "role": "coordinator",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-opus-4-6",
       "tools": {
         "allow": ["web-search", "file-read"]
       },
@@ -671,7 +671,7 @@ A full `reef.json` for a customer support team formation:
       "source": "agents/triage",
       "description": "Classifies incoming requests and routes to the right agent",
       "role": "router",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-sonnet-4-5",
       "tools": {
         "allow": ["web-search"]
       },
@@ -684,7 +684,7 @@ A full `reef.json` for a customer support team formation:
       "source": "agents/knowledge",
       "description": "Answers questions using the knowledge base",
       "role": "responder",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-sonnet-4-5",
       "tools": {
         "allow": ["file-read", "web-search"]
       },
@@ -697,7 +697,7 @@ A full `reef.json` for a customer support team formation:
       "source": "agents/escalation",
       "description": "Handles complex issues and escalates to humans when needed",
       "role": "escalation",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-sonnet-4-5",
       "tools": {
         "allow": ["email-send"]
       },

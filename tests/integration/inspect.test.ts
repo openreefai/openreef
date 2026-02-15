@@ -27,7 +27,7 @@ describe('reef inspect', () => {
 
   it('prints variables section', async () => {
     const { stdout } = await runCli('inspect', TEMPLATE);
-    expect(stdout).toContain('OPENAI_API_KEY');
+    expect(stdout).toContain('ANTHROPIC_API_KEY');
     expect(stdout).toContain('MISSION_GOAL');
   });
 
@@ -46,6 +46,6 @@ describe('reef inspect', () => {
   it('prints dependencies', async () => {
     const { stdout } = await runCli('inspect', TEMPLATE);
     expect(stdout).toContain('web-search');
-    expect(stdout).toContain('OpenAI API');
+    expect(stdout).toContain('Anthropic API');
   });
 });

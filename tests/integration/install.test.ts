@@ -50,7 +50,7 @@ beforeEach(async () => {
         triage: {
           source: 'agents/triage',
           description: 'Handles triage',
-          model: 'gpt-4o',
+          model: 'anthropic/claude-sonnet-4-5',
         },
       },
     }),
@@ -83,7 +83,7 @@ describe('reef install', () => {
     const agentsList = config.agents.list as Record<string, unknown>[];
     const triageAgent = agentsList.find((a) => a.id === 'testns-triage');
     expect(triageAgent).toBeDefined();
-    expect(triageAgent!.model).toBe('gpt-4o');
+    expect(triageAgent!.model).toBe('anthropic/claude-sonnet-4-5');
 
     // Workspace dir should exist
     const workspaceDir = join(tempHome, 'workspace-testns-triage');
@@ -136,7 +136,7 @@ describe('reef install', () => {
           triage: {
             source: 'agents/triage',
             description: 'Handles triage',
-            model: 'gpt-4o',
+            model: 'anthropic/claude-sonnet-4-5',
           },
         },
         cron: [
@@ -190,7 +190,7 @@ describe('reef install', () => {
           triage: {
             source: 'agents/triage',
             description: 'Handles triage',
-            model: 'gpt-4o',
+            model: 'anthropic/claude-sonnet-4-5',
           },
         },
         bindings: [
@@ -259,12 +259,12 @@ describe('reef install', () => {
           triage: {
             source: 'agents/triage',
             description: 'Handles triage',
-            model: 'gpt-4o',
+            model: 'anthropic/claude-sonnet-4-5',
           },
           researcher: {
             source: 'agents/researcher',
             description: 'Does research',
-            model: 'gpt-4o',
+            model: 'anthropic/claude-sonnet-4-5',
           },
         },
         agentToAgent: {

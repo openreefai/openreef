@@ -7,9 +7,9 @@
   "author": "TODO: Your name or organization",
   "namespace": "my-formation",
   "variables": {
-    "OPENAI_API_KEY": {
+    "ANTHROPIC_API_KEY": {
       "type": "string",
-      "description": "OpenAI API key for LLM calls",
+      "description": "Anthropic API key for LLM calls",
       "required": true,
       "sensitive": true
     },
@@ -26,7 +26,7 @@
       "source": "agents/manager",
       "description": "Coordinates the team, delegates tasks, and synthesizes results",
       "role": "coordinator",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-opus-4-6",
       "tools": {
         "allow": ["web-search", "file-read"]
       },
@@ -39,7 +39,7 @@
       "source": "agents/researcher",
       "description": "Conducts deep research on assigned topics and reports findings",
       "role": "researcher",
-      "model": "gpt-4o",
+      "model": "anthropic/claude-sonnet-4-5",
       "tools": {
         "allow": ["web-search"]
       },
@@ -68,8 +68,8 @@
     },
     "services": [
       {
-        "name": "OpenAI API",
-        "url": "https://platform.openai.com",
+        "name": "Anthropic API",
+        "url": "https://console.anthropic.com",
         "required": true,
         "description": "LLM provider for all agents"
       }

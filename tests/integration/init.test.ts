@@ -42,7 +42,7 @@ describe('reef init', () => {
 
     // Check .env.example was generated
     const envExample = await readFile(join(formationDir, '.env.example'), 'utf-8');
-    expect(envExample).toContain('OPENAI_API_KEY');
+    expect(envExample).toContain('ANTHROPIC_API_KEY');
     expect(envExample).toContain('MISSION_GOAL');
 
     // Check agent directories exist

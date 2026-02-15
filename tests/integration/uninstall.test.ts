@@ -45,7 +45,7 @@ beforeEach(async () => {
         triage: {
           source: 'agents/triage',
           description: 'Handles triage',
-          model: 'gpt-4o',
+          model: 'anthropic/claude-sonnet-4-5',
         },
       },
     }),
@@ -81,7 +81,7 @@ describe('reef uninstall', () => {
           triage: {
             source: 'agents/triage',
             description: 'Handles triage',
-            model: 'gpt-4o',
+            model: 'anthropic/claude-sonnet-4-5',
           },
         },
         bindings: [
