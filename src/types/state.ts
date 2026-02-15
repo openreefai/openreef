@@ -12,6 +12,9 @@ export interface FormationState {
     wasEnabled: boolean;
     allowAdded: boolean;
   };
+  sourcePath?: string;
+  updatedAt?: string;
+  agentToAgentEdges?: Record<string, string[]>;
 }
 
 export interface AgentState {
@@ -19,12 +22,20 @@ export interface AgentState {
   slug: string;
   workspace: string;
   files: string[];
+  model?: string | { primary?: string; fallbacks?: string[] };
+  configTools?: Record<string, unknown>;
+  configSandbox?: Record<string, unknown>;
+  configIdentity?: Record<string, unknown>;
+  configSkills?: string[];
 }
 
 export interface CronJobState {
   id: string;
   name: string;
   agentSlug: string;
+  schedule?: string;
+  timezone?: string;
+  prompt?: string;
 }
 
 export interface OpenClawBinding {

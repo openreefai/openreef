@@ -3,8 +3,12 @@ import chalk from 'chalk';
 import { resolveGatewayUrl } from '../core/openclaw-paths.js';
 import { readConfig } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth, type CronJob } from '../core/gateway-client.js';
-import { loadState, listStates } from '../core/state-manager.js';
 import { icons, header, label, value, table } from '../utils/output.js';
+import {
+  resolveFormationState,
+  FormationNotFoundError,
+  AmbiguousFormationError,
+} from '../utils/identifiers.js';
 
 export interface StatusOptions {
   json?: boolean;
@@ -13,54 +17,29 @@ export interface StatusOptions {
   gatewayPassword?: string;
 }
 
-function parseIdentifier(
-  identifier: string,
-): { namespace?: string; name: string } {
-  const slash = identifier.indexOf('/');
-  if (slash !== -1) {
-    return {
-      namespace: identifier.slice(0, slash),
-      name: identifier.slice(slash + 1),
-    };
-  }
-  return { name: identifier };
-}
-
 export async function status(
   identifier: string,
   options: StatusOptions,
 ): Promise<void> {
-  const parsed = parseIdentifier(identifier);
   let state;
-
-  if (parsed.namespace) {
-    state = await loadState(parsed.namespace, parsed.name);
-    if (!state) {
-      console.error(
-        `${icons.error} Formation "${identifier}" not found.`,
-      );
+  try {
+    state = await resolveFormationState(identifier);
+  } catch (err) {
+    if (err instanceof FormationNotFoundError) {
+      console.error(`${icons.error} ${err.message}`);
       process.exit(1);
     }
-  } else {
-    const allStates = await listStates();
-    const matches = allStates.filter((s) => s.name === parsed.name);
-    if (matches.length === 0) {
+    if (err instanceof AmbiguousFormationError) {
       console.error(
-        `${icons.error} No formation found with name "${parsed.name}".`,
+        `${icons.error} Multiple formations named "${err.message.split('"')[1]}" found:`,
       );
-      process.exit(1);
-    }
-    if (matches.length > 1) {
-      console.error(
-        `${icons.error} Multiple formations named "${parsed.name}" found:`,
-      );
-      for (const m of matches) {
+      for (const m of err.matches) {
         console.error(`  - ${m.namespace}/${m.name}`);
       }
       console.error('  Specify the full namespace/name.');
       process.exit(1);
     }
-    state = matches[0];
+    throw err;
   }
 
   // Read config to check agents and bindings

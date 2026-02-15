@@ -198,7 +198,7 @@ export class GatewayClient {
           maxProtocol: PROTOCOL_VERSION,
           client: {
             id: CLIENT_ID,
-            version: '0.2.0',
+            version: '0.3.0',
             platform: process.platform,
             mode: CLIENT_MODE,
           },

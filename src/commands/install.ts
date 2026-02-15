@@ -48,6 +48,7 @@ export interface InstallOptions {
   merge?: boolean;
   yes?: boolean;
   noEnv?: boolean;
+  dryRun?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
@@ -69,20 +70,6 @@ function parseSets(sets?: string[]): Record<string, string> {
     result[s.slice(0, eq)] = s.slice(eq + 1);
   }
   return result;
-}
-
-function parseIdentifier(identifier: string): {
-  namespace?: string;
-  name: string;
-} {
-  const slash = identifier.indexOf('/');
-  if (slash !== -1) {
-    return {
-      namespace: identifier.slice(0, slash),
-      name: identifier.slice(slash + 1),
-    };
-  }
-  return { name: identifier };
 }
 
 export async function install(
@@ -157,6 +144,67 @@ export async function install(
   // ── Phase 3: Conflicts ──
   const { config, path: configPath } = await readConfig();
   const existingState = await loadState(namespace, manifest.name);
+
+  // DRY-RUN: report conflicts and planned changes, then exit cleanly
+  if (options.dryRun) {
+    console.log('');
+    console.log(header('Dry Run — No changes will be made'));
+    console.log('');
+
+    // Report conflicts informationally
+    if (existingState && !options.force && !options.merge) {
+      console.log(
+        `${icons.warning} Conflict: Formation "${namespace}/${manifest.name}" is already installed.`,
+      );
+      console.log('  With --force: would remove existing installation first.');
+      console.log('  With --merge: would update in-place.');
+      console.log('');
+    }
+
+    // Show what --force would do
+    if (options.force && existingState) {
+      console.log('Would first remove existing installation:');
+      for (const agent of Object.values(existingState.agents)) {
+        console.log(`  - Agent ${agent.id} from config`);
+        console.log(`  - Workspace ${agent.workspace}`);
+      }
+      for (const binding of existingState.bindings) {
+        console.log(`  - Binding ${binding.match.channel} → ${binding.agentId}`);
+      }
+      for (const job of existingState.cronJobs) {
+        console.log(`  - Cron job ${job.name} (${job.id})`);
+      }
+      console.log(`  - State file ${existingState.namespace}/${existingState.name}`);
+      console.log('');
+      console.log('Then deploy fresh:');
+    } else {
+      console.log('Would deploy:');
+    }
+
+    // Show deploy plan
+    console.log(
+      `  ${label('Formation:')} ${value(`${namespace}/${manifest.name}`)} v${manifest.version}`,
+    );
+    for (const [slug, agentDef] of Object.entries(manifest.agents)) {
+      const agentId = idValidation.ids.get(slug)!;
+      console.log(
+        `  + Agent ${slug} → ${agentId}${agentDef.model ? ` (model: ${agentDef.model})` : ''}`,
+      );
+    }
+    for (const binding of manifest.bindings ?? []) {
+      const resolvedAgentId = idValidation.ids.get(binding.agent);
+      if (resolvedAgentId) {
+        console.log(`  + Binding ${binding.channel} → ${resolvedAgentId}`);
+      }
+    }
+    for (const cronEntry of manifest.cron ?? []) {
+      console.log(
+        `  + Cron ${cronEntry.schedule} → ${namespace}-${cronEntry.agent}`,
+      );
+    }
+    console.log(`  + State file ${namespace}/${manifest.name} v${manifest.version}`);
+    return;
+  }
 
   if (existingState && !options.force && !options.merge) {
     console.error(
@@ -443,6 +491,7 @@ export async function install(
       slug,
       workspace: workspacePath,
       files: deployedFiles,
+      model: agentDef.model,
     };
   }
 
@@ -546,6 +595,9 @@ export async function install(
               id: existing.id,
               name: jobName,
               agentSlug: cronEntry.agent,
+              schedule: cronEntry.schedule,
+              timezone: cronEntry.timezone,
+              prompt: cronEntry.prompt,
             });
           } else {
             // Add new
@@ -569,6 +621,9 @@ export async function install(
               id: result.id,
               name: jobName,
               agentSlug: cronEntry.agent,
+              schedule: cronEntry.schedule,
+              timezone: cronEntry.timezone,
+              prompt: cronEntry.prompt,
             });
           }
         }
@@ -603,6 +658,9 @@ export async function install(
             id: result.id,
             name: jobName,
             agentSlug: cronEntry.agent,
+            schedule: cronEntry.schedule,
+            timezone: cronEntry.timezone,
+            prompt: cronEntry.prompt,
           });
         }
       }
@@ -708,6 +766,8 @@ export async function install(
     variables: variablesForState,
     fileHashes,
     agentToAgent: a2aState.allowAdded ? a2aState : undefined,
+    sourcePath: formationPath,
+    agentToAgentEdges: manifest.agentToAgent ?? undefined,
   };
 
   await saveState(state);

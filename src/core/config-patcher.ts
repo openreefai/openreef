@@ -59,8 +59,17 @@ export async function writeConfig(
 
   // Backup original if exists
   if (existsSync(configPath)) {
+    const existing = await readFile(configPath, 'utf-8');
+    let isAlreadyJson = false;
+    try {
+      JSON.parse(existing);
+      isAlreadyJson = true;
+    } catch {
+      // Not valid JSON — was JSON5 with comments/trailing commas
+    }
+
     await rename(configPath, bakPath);
-    if (!options?.silent) {
+    if (!options?.silent && !isAlreadyJson) {
       console.log(
         `Config rewritten as JSON — comments from original JSON5 removed. Backup: ${bakPath}`,
       );

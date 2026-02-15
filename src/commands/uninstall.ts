@@ -1,7 +1,9 @@
 import { rm } from 'node:fs/promises';
+import { resolve, relative } from 'node:path';
+import { existsSync } from 'node:fs';
 import ora from 'ora';
 import chalk from 'chalk';
-import { resolveGatewayUrl } from '../core/openclaw-paths.js';
+import { resolveGatewayUrl, resolveStateDir, resolveAgentStatePaths } from '../core/openclaw-paths.js';
 import {
   readConfig,
   writeConfig,
@@ -11,30 +13,22 @@ import {
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
-  loadState,
   deleteState,
   listStates,
 } from '../core/state-manager.js';
 import { icons, header, label, value } from '../utils/output.js';
+import {
+  resolveFormationState,
+  FormationNotFoundError,
+  AmbiguousFormationError,
+} from '../utils/identifiers.js';
 
 export interface UninstallOptions {
   yes?: boolean;
+  dryRun?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
-}
-
-function parseIdentifier(
-  identifier: string,
-): { namespace?: string; name: string } {
-  const slash = identifier.indexOf('/');
-  if (slash !== -1) {
-    return {
-      namespace: identifier.slice(0, slash),
-      name: identifier.slice(slash + 1),
-    };
-  }
-  return { name: identifier };
 }
 
 export async function uninstall(
@@ -42,41 +36,48 @@ export async function uninstall(
   options: UninstallOptions,
 ): Promise<void> {
   // 1. Resolve identifier to state
-  const parsed = parseIdentifier(identifier);
   let state;
-
-  if (parsed.namespace) {
-    state = await loadState(parsed.namespace, parsed.name);
-    if (!state) {
-      console.error(
-        `${icons.error} Formation "${identifier}" not found.`,
-      );
+  try {
+    state = await resolveFormationState(identifier);
+  } catch (err) {
+    if (err instanceof FormationNotFoundError) {
+      console.error(`${icons.error} ${err.message}`);
       process.exit(1);
     }
-  } else {
-    // Search all states for unique match by name
-    const allStates = await listStates();
-    const matches = allStates.filter((s) => s.name === parsed.name);
-    if (matches.length === 0) {
+    if (err instanceof AmbiguousFormationError) {
       console.error(
-        `${icons.error} No formation found with name "${parsed.name}".`,
+        `${icons.error} Multiple formations named "${err.message.split('"')[1]}" found:`,
       );
-      process.exit(1);
-    }
-    if (matches.length > 1) {
-      console.error(
-        `${icons.error} Multiple formations named "${parsed.name}" found:`,
-      );
-      for (const m of matches) {
+      for (const m of err.matches) {
         console.error(`  - ${m.namespace}/${m.name}`);
       }
       console.error('  Specify the full namespace/name.');
       process.exit(1);
     }
-    state = matches[0];
+    throw err;
   }
 
-  // 2. Confirm
+  // 2. Dry run
+  if (options.dryRun) {
+    console.log('');
+    console.log(header('Dry Run — No changes will be made'));
+    console.log('');
+    console.log('Would remove:');
+    for (const agent of Object.values(state.agents)) {
+      console.log(`  - Agent ${agent.id} from config`);
+      console.log(`  - Workspace ${agent.workspace}`);
+    }
+    for (const binding of state.bindings) {
+      console.log(`  - Binding ${binding.match.channel} → ${binding.agentId}`);
+    }
+    for (const job of state.cronJobs) {
+      console.log(`  - Cron job ${job.name} (${job.id})`);
+    }
+    console.log(`  - State file ${state.namespace}/${state.name}`);
+    return;
+  }
+
+  // 3. Confirm
   if (!options.yes) {
     console.log('');
     console.log(header('Uninstall'));
@@ -103,41 +104,48 @@ export async function uninstall(
 
   const spinner = ora('Uninstalling formation...').start();
 
-  // 3. Remove cron jobs via Gateway RPC
-  if (state.cronJobs.length > 0) {
-    spinner.text = 'Removing cron jobs...';
-    const { config } = await readConfig();
-    const gwUrl =
-      options.gatewayUrl ?? resolveGatewayUrl(config, process.env);
-    const gwAuth = resolveGatewayAuth({
-      gatewayUrl: options.gatewayUrl,
-      gatewayToken: options.gatewayToken,
-      gatewayPassword: options.gatewayPassword,
-      config,
-    });
-    const gw = new GatewayClient({
-      url: gwUrl,
-      ...gwAuth,
-    });
+  // 4. Gateway RPC cleanup — agents.delete + cron removal
+  // Always attempt Gateway connection (not just for cron), because agents.delete
+  // invalidates the agent in Gateway's runtime state, preventing dashboard ghosts.
+  spinner.text = 'Cleaning up Gateway state...';
+  const { config: gwConfig } = await readConfig();
+  const gwUrl =
+    options.gatewayUrl ?? resolveGatewayUrl(gwConfig, process.env);
+  const gwAuth = resolveGatewayAuth({
+    gatewayUrl: options.gatewayUrl,
+    gatewayToken: options.gatewayToken,
+    gatewayPassword: options.gatewayPassword,
+    config: gwConfig,
+  });
+  const gw = new GatewayClient({
+    url: gwUrl,
+    ...gwAuth,
+  });
 
-    try {
-      await gw.connect();
-      for (const job of state.cronJobs) {
-        try {
-          await gw.cronRemove(job.id);
-        } catch {
-          // Job may already be gone
-        }
+  try {
+    await gw.connect();
+    for (const agent of Object.values(state.agents)) {
+      try {
+        await gw.call('agents.delete', { agentId: agent.id });
+      } catch {
+        // Agent may not exist in Gateway runtime — that's fine
       }
-      gw.close();
-    } catch {
-      spinner.warn(
-        'Could not connect to Gateway for cron removal — jobs may be orphaned',
-      );
     }
+    for (const job of state.cronJobs) {
+      try {
+        await gw.cronRemove(job.id);
+      } catch {
+        // Job may already be gone
+      }
+    }
+    gw.close();
+  } catch {
+    spinner.warn(
+      'Could not connect to Gateway — restart Gateway to clear agent state',
+    );
   }
 
-  // 4. Patch config
+  // 5. Patch config
   spinner.text = 'Removing config entries...';
   let { config, path: configPath } = await readConfig();
 
@@ -167,7 +175,7 @@ export async function uninstall(
 
   await writeConfig(configPath, config, { silent: true });
 
-  // 5. Delete workspace directories
+  // 6. Delete workspace directories
   spinner.text = 'Removing workspace directories...';
   for (const agent of Object.values(state.agents)) {
     try {
@@ -177,7 +185,28 @@ export async function uninstall(
     }
   }
 
-  // 6. Delete state
+  // 7. Clean up Gateway agent state (sessions, agent dir, qmd memory)
+  const resolvedStateDir = resolve(resolveStateDir());
+  for (const agent of Object.values(state.agents)) {
+    const statePaths = resolveAgentStatePaths(agent.id);
+    for (const p of statePaths) {
+      if (!existsSync(p)) continue;
+      // Robust containment check: resolve both paths, verify relative path
+      // doesn't escape (no leading ".." segments)
+      const resolvedPath = resolve(p);
+      const rel = relative(resolvedStateDir, resolvedPath);
+      if (rel.startsWith('..') || resolve(resolvedStateDir, rel) !== resolvedPath) {
+        continue;
+      }
+      try {
+        await rm(p, { recursive: true, force: true });
+      } catch {
+        // May fail if parent dir has other contents — that's fine
+      }
+    }
+  }
+
+  // 8. Delete state
   await deleteState(state.namespace, state.name);
 
   spinner.succeed('Formation uninstalled');

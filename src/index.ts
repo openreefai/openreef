@@ -9,13 +9,16 @@ import { install } from './commands/install.js';
 import { uninstall } from './commands/uninstall.js';
 import { list } from './commands/list.js';
 import { status } from './commands/status.js';
+import { repair } from './commands/repair.js';
+import { update } from './commands/update.js';
+import { logs } from './commands/logs.js';
 
 const program = new Command();
 
 program
   .name('reef')
   .description('OpenReef CLI — package and deploy multi-agent formations')
-  .version('0.2.0');
+  .version('0.3.0');
 
 program
   .command('init [name]')
@@ -82,6 +85,7 @@ program
   .option('--merge', 'Update files only, preserve agent config')
   .option('--yes', 'Skip confirmation prompts')
   .option('--no-env', 'Skip loading .env file')
+  .option('--dry-run', 'Preview changes without applying them')
   .option('--gateway-url <url>', 'Gateway WebSocket URL')
   .option('--gateway-token <token>', 'Gateway auth token')
   .option('--gateway-password <password>', 'Gateway auth password')
@@ -98,12 +102,70 @@ program
   .command('uninstall <identifier>')
   .description('Remove an installed formation (namespace/name or name)')
   .option('--yes', 'Skip confirmation')
+  .option('--dry-run', 'Preview changes without applying them')
   .option('--gateway-url <url>', 'Gateway WebSocket URL')
   .option('--gateway-token <token>', 'Gateway auth token')
   .option('--gateway-password <password>', 'Gateway auth password')
   .action(async (identifier, options) => {
     try {
       await uninstall(identifier, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('update <path>')
+  .description('Update an installed formation from a new manifest')
+  .option('--set <key=value...>', 'Set variable values')
+  .option('--namespace <ns>', 'Override namespace')
+  .option('--yes', 'Skip confirmation')
+  .option('--no-env', 'Skip loading .env file')
+  .option('--dry-run', 'Preview changes without applying them')
+  .option('--gateway-url <url>', 'Gateway WebSocket URL')
+  .option('--gateway-token <token>', 'Gateway auth token')
+  .option('--gateway-password <password>', 'Gateway auth password')
+  .action(async (path, options) => {
+    try {
+      await update(path, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('repair <identifier>')
+  .description('Detect and fix discrepancies in an installed formation')
+  .option('--source <path>', 'Formation source for file re-deployment')
+  .option('--yes', 'Skip confirmation')
+  .option('--dry-run', 'Preview changes without applying them')
+  .option('--gateway-url <url>', 'Gateway WebSocket URL')
+  .option('--gateway-token <token>', 'Gateway auth token')
+  .option('--gateway-password <password>', 'Gateway auth password')
+  .action(async (identifier, options) => {
+    try {
+      await repair(identifier, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('logs <identifier>')
+  .description('View session logs for a formation')
+  .option('--agent <slug>', 'Filter by agent slug or ID')
+  .option('--lines <n>', 'Number of lines to show', '50')
+  .option('--follow', 'Follow log output (tail -f)')
+  .option('--path <path>', 'Read from a specific log file')
+  .action(async (identifier, options) => {
+    try {
+      await logs(identifier, {
+        ...options,
+        lines: parseInt(options.lines, 10),
+      });
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);

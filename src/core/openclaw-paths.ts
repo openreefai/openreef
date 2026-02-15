@@ -213,3 +213,21 @@ export function validateAgentIds(
 
   return { valid: errors.length === 0, ids, errors };
 }
+
+/**
+ * Return paths under $STATE_DIR/agents/{agentId}/ that should be cleaned up
+ * on uninstall: sessions, agent state, qmd memory, and the parent directory.
+ * Order: children first, so the parent can be rmdir'd if empty.
+ */
+export function resolveAgentStatePaths(
+  agentId: string,
+  env?: NodeJS.ProcessEnv,
+): string[] {
+  const stateDir = resolveStateDir(env);
+  return [
+    join(stateDir, 'agents', agentId, 'sessions'),
+    join(stateDir, 'agents', agentId, 'agent'),
+    join(stateDir, 'agents', agentId, 'qmd'),
+    join(stateDir, 'agents', agentId),
+  ];
+}
