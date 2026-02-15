@@ -1,0 +1,88 @@
+{
+  "reef": "1.0",
+  "type": "team",
+  "name": "my-formation",
+  "version": "0.1.0",
+  "description": "TODO: Describe what your formation does",
+  "author": "TODO: Your name or organization",
+  "namespace": "my-formation",
+  "variables": {
+    "OPENAI_API_KEY": {
+      "type": "string",
+      "description": "OpenAI API key for LLM calls",
+      "required": true,
+      "sensitive": true
+    },
+    "MISSION_GOAL": {
+      "type": "string",
+      "description": "Primary mission for the agent team",
+      "default": "Research",
+      "required": false,
+      "sensitive": false
+    }
+  },
+  "agents": {
+    "manager": {
+      "source": "agents/manager",
+      "description": "Coordinates the team, delegates tasks, and synthesizes results",
+      "role": "coordinator",
+      "model": "gpt-4o",
+      "tools": {
+        "allow": ["web-search", "file-read"]
+      },
+      "sandbox": {
+        "network": true,
+        "filesystem": "restricted"
+      }
+    },
+    "researcher": {
+      "source": "agents/researcher",
+      "description": "Conducts deep research on assigned topics and reports findings",
+      "role": "researcher",
+      "model": "gpt-4o",
+      "tools": {
+        "allow": ["web-search"]
+      },
+      "sandbox": {
+        "network": true,
+        "filesystem": "restricted"
+      }
+    }
+  },
+  "agentToAgent": {
+    "manager": ["researcher"],
+    "researcher": ["manager"]
+  },
+  "cron": [
+    {
+      "schedule": "0 9 * * 1-5",
+      "agent": "manager",
+      "prompt": "Review progress on the current mission and plan today's priorities.",
+      "timezone": "UTC"
+    }
+  ],
+  "dependencies": {
+    "skills": {
+      "web-search": "^1.0.0",
+      "file-read": "^1.0.0"
+    },
+    "services": [
+      {
+        "name": "OpenAI API",
+        "url": "https://platform.openai.com",
+        "required": true,
+        "description": "LLM provider for all agents"
+      }
+    ]
+  },
+  "validation": {
+    "agent_exists": true,
+    "file_exists": true,
+    "binding_active": true,
+    "cron_exists": true,
+    "agent_responds": {
+      "enabled": false,
+      "timeout": 30
+    }
+  }
+}
