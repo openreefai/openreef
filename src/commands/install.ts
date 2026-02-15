@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import ora from 'ora';
 import chalk from 'chalk';
+import { resolveFormationPath } from '../utils/tarball.js';
 import { loadManifest } from '../core/manifest-loader.js';
 import { validateSchema } from '../core/schema-validator.js';
 import { validateStructure } from '../core/structural-validator.js';
@@ -73,6 +74,21 @@ function parseSets(sets?: string[]): Record<string, string> {
 }
 
 export async function install(
+  inputPath: string,
+  options: InstallOptions,
+): Promise<void> {
+  // Resolve tarball to directory if needed
+  const { formationPath, tempDir } = await resolveFormationPath(inputPath);
+  try {
+    await _install(formationPath, options);
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+async function _install(
   formationPath: string,
   options: InstallOptions,
 ): Promise<void> {

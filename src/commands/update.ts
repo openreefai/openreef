@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import ora from 'ora';
 import chalk from 'chalk';
+import { resolveFormationPath } from '../utils/tarball.js';
 import { loadManifest } from '../core/manifest-loader.js';
 import { validateSchema } from '../core/schema-validator.js';
 import { validateStructure } from '../core/structural-validator.js';
@@ -75,6 +76,21 @@ function parseSets(sets?: string[]): Record<string, string> {
 }
 
 export async function update(
+  inputPath: string,
+  options: UpdateOptions,
+): Promise<void> {
+  // Resolve tarball to directory if needed
+  const { formationPath, tempDir } = await resolveFormationPath(inputPath);
+  try {
+    await _update(formationPath, options);
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+async function _update(
   formationPath: string,
   options: UpdateOptions,
 ): Promise<void> {
