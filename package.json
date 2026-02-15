@@ -1,6 +1,6 @@
 {
   "name": "@openreef/cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
   "type": "module",
   "bin": {
