@@ -306,6 +306,201 @@ describe('reef install', () => {
     expect(existsSync(researcherAgentsMd)).toBe(false);
   });
 
+  it('--yes skips bindings for unconfigured channels', async () => {
+    // Config has only telegram configured
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify({
+        agents: { list: [] },
+        bindings: [],
+        channels: {
+          telegram: { enabled: true, botToken: '123:ABC' },
+        },
+      }),
+    );
+
+    // Formation declares both telegram and slack bindings
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with multi-channel bindings',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram', agent: 'triage' },
+          { channel: 'slack:#support', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Only telegram binding should be in config
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0].match as Record<string, unknown>).channel).toBe(
+      'telegram',
+    );
+
+    // State should also have only the telegram binding
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'testns--test-formation.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.bindings).toHaveLength(1);
+    expect(state.bindings[0].match.channel).toBe('telegram');
+  });
+
+  it('--yes wires all when no channels section (backward compat)', async () => {
+    // Minimal config WITHOUT channels section
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify({
+        agents: { list: [] },
+        bindings: [],
+      }),
+    );
+
+    // Formation with discord and slack bindings
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with bindings',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'discord:general', agent: 'triage' },
+          { channel: 'slack', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Both bindings should be wired
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(2);
+
+    const channels = bindings.map(
+      (b) => (b.match as Record<string, unknown>).channel,
+    );
+    expect(channels).toContain('discord:general');
+    expect(channels).toContain('slack');
+  });
+
+  it('--merge ignores channel availability', async () => {
+    // First install with both bindings (no channels section, all wired)
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with bindings',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'slack', agent: 'triage' },
+          { channel: 'telegram', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Verify initial install wired both
+    let configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    let config = JSON.parse(configRaw);
+    expect(config.bindings).toHaveLength(2);
+
+    // Now add channels section with only telegram configured
+    config.channels = { telegram: { enabled: true } };
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify(config),
+    );
+
+    // Run install --merge --yes
+    await install(formationDir, { yes: true, merge: true });
+
+    // Both bindings should still be present (merge wires all)
+    configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(2);
+
+    const channels = bindings.map(
+      (b) => (b.match as Record<string, unknown>).channel,
+    );
+    expect(channels).toContain('slack');
+    expect(channels).toContain('telegram');
+
+    // State should also have both
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'testns--test-formation.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.bindings).toHaveLength(2);
+  });
+
   it('--merge skips unchanged files and updates state', async () => {
     // First install
     await install(formationDir, { yes: true });

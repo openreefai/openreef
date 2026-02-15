@@ -13,8 +13,13 @@ import {
   setAgentToAgent,
   removeAgentToAgent,
   bindingsEqual,
+  extractChannelType,
+  getConfiguredChannels,
+  classifyBindings,
+  resolveSelectedBindings,
 } from '../../src/core/config-patcher.js';
 import type { OpenClawBinding } from '../../src/types/state.js';
+import type { Binding } from '../../src/types/manifest.js';
 
 let tempDir: string;
 
@@ -371,6 +376,164 @@ describe('config-patcher', () => {
         match: { channel: 'slack' },
       };
       expect(bindingsEqual(a, b)).toBe(false);
+    });
+  });
+
+  // ─── extractChannelType ──────────────────────────────────────────
+  describe('extractChannelType', () => {
+    it('extracts bare channel name', () => {
+      expect(extractChannelType('telegram')).toBe('telegram');
+    });
+
+    it('extracts channel type before colon', () => {
+      expect(extractChannelType('slack:#support')).toBe('slack');
+    });
+
+    it('handles multiple colons (splits on first)', () => {
+      expect(extractChannelType('discord:guild:channel')).toBe('discord');
+    });
+
+    it('normalizes case', () => {
+      expect(extractChannelType('Slack:#Support')).toBe('slack');
+    });
+
+    it('trims whitespace', () => {
+      expect(extractChannelType('  slack  ')).toBe('slack');
+      expect(extractChannelType('  Telegram:#chat  ')).toBe('telegram');
+    });
+  });
+
+  // ─── getConfiguredChannels ───────────────────────────────────────
+  describe('getConfiguredChannels', () => {
+    it('returns null when no channels section', () => {
+      expect(getConfiguredChannels({})).toBeNull();
+    });
+
+    it('returns null for non-object channels (malformed guard)', () => {
+      expect(getConfiguredChannels({ channels: 'bad' })).toBeNull();
+      expect(getConfiguredChannels({ channels: 42 })).toBeNull();
+      expect(getConfiguredChannels({ channels: true })).toBeNull();
+      expect(getConfiguredChannels({ channels: null })).toBeNull();
+    });
+
+    it('returns null for array channels (malformed guard)', () => {
+      expect(getConfiguredChannels({ channels: ['slack'] })).toBeNull();
+    });
+
+    it('returns enabled channels', () => {
+      const result = getConfiguredChannels({
+        channels: {
+          slack: { enabled: true, token: 'xoxb-...' },
+          telegram: { botToken: '123:ABC' },
+        },
+      });
+      expect(result).toEqual(new Set(['slack', 'telegram']));
+    });
+
+    it('excludes explicitly disabled channels', () => {
+      const result = getConfiguredChannels({
+        channels: {
+          slack: { enabled: false },
+          telegram: { enabled: true },
+        },
+      });
+      expect(result).toEqual(new Set(['telegram']));
+    });
+
+    it('treats missing enabled field as enabled', () => {
+      const result = getConfiguredChannels({
+        channels: {
+          telegram: { botToken: '123:ABC' },
+        },
+      });
+      expect(result).toEqual(new Set(['telegram']));
+    });
+
+    it('excludes the defaults key', () => {
+      const result = getConfiguredChannels({
+        channels: {
+          defaults: { timeout: 30 },
+          slack: { enabled: true },
+        },
+      });
+      expect(result).toEqual(new Set(['slack']));
+      expect(result!.has('defaults')).toBe(false);
+    });
+
+    it('treats non-object provider entry as configured', () => {
+      const result = getConfiguredChannels({
+        channels: { slack: true },
+      });
+      expect(result).toEqual(new Set(['slack']));
+    });
+  });
+
+  // ─── classifyBindings ────────────────────────────────────────────
+  describe('classifyBindings', () => {
+    const bindings: Binding[] = [
+      { channel: 'slack:#support', agent: 'triage' },
+      { channel: 'telegram', agent: 'triage' },
+    ];
+
+    it('marks all as unknown when configuredChannels is null', () => {
+      const result = classifyBindings(bindings, null);
+      expect(result).toHaveLength(2);
+      expect(result[0].status).toBe('unknown');
+      expect(result[1].status).toBe('unknown');
+    });
+
+    it('correctly classifies configured and unconfigured bindings', () => {
+      const channels = new Set(['telegram']);
+      const result = classifyBindings(bindings, channels);
+      expect(result[0].status).toBe('unconfigured'); // slack
+      expect(result[0].channelType).toBe('slack');
+      expect(result[1].status).toBe('configured'); // telegram
+      expect(result[1].channelType).toBe('telegram');
+    });
+
+    it('extracts channel type from compound strings', () => {
+      const result = classifyBindings(
+        [{ channel: 'discord:general', agent: 'bot' }],
+        new Set(['discord']),
+      );
+      expect(result[0].channelType).toBe('discord');
+      expect(result[0].status).toBe('configured');
+    });
+  });
+
+  // ─── resolveSelectedBindings ─────────────────────────────────────
+  describe('resolveSelectedBindings', () => {
+    it('keeps configured and unknown, drops unconfigured', () => {
+      const classified = [
+        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'configured' as const },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const },
+        { binding: { channel: 'discord', agent: 'c' }, channelType: 'discord', status: 'unknown' as const },
+      ];
+      const result = resolveSelectedBindings(classified);
+      expect(result).toHaveLength(2);
+      expect(result[0].channel).toBe('slack');
+      expect(result[1].channel).toBe('discord');
+    });
+
+    it('returns empty for empty input', () => {
+      expect(resolveSelectedBindings([])).toEqual([]);
+    });
+
+    it('returns empty when all are unconfigured', () => {
+      const classified = [
+        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unconfigured' as const },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const },
+      ];
+      expect(resolveSelectedBindings(classified)).toEqual([]);
+    });
+
+    it('keeps all when all are unknown', () => {
+      const classified = [
+        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unknown' as const },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unknown' as const },
+      ];
+      const result = resolveSelectedBindings(classified);
+      expect(result).toHaveLength(2);
     });
   });
 });

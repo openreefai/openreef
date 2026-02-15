@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import JSON5 from 'json5';
 import { resolveConfigPath, resolveWorkspacePath } from './openclaw-paths.js';
 import type { OpenClawBinding } from '../types/state.js';
+import type { Binding } from '../types/manifest.js';
 
 export interface AgentEntry {
   id: string;
@@ -222,4 +223,84 @@ function canonicalJson(obj: unknown): string {
         canonicalJson((obj as Record<string, unknown>)[k]),
     );
   return '{' + sorted.join(',') + '}';
+}
+
+// ─── Channel detection utilities ─────────────────────────────────
+
+export interface ClassifiedBinding {
+  binding: Binding;
+  channelType: string;
+  status: 'configured' | 'unconfigured' | 'unknown';
+}
+
+/**
+ * Parses "slack:#support" → "slack", "telegram" → "telegram".
+ * Splits on first `:` and normalizes with trim + lowercase.
+ */
+export function extractChannelType(channel: string): string {
+  const idx = channel.indexOf(':');
+  const raw = idx === -1 ? channel : channel.slice(0, idx);
+  return raw.trim().toLowerCase();
+}
+
+/**
+ * Reads config.channels and returns the set of channel types where enabled !== false.
+ * Returns null when config.channels is absent or non-object (unknown — wire everything).
+ * Skips the "defaults" key since it's not a channel.
+ */
+export function getConfiguredChannels(
+  config: Record<string, unknown>,
+): Set<string> | null {
+  const channels = config.channels;
+  if (channels === undefined || channels === null) return null;
+  if (typeof channels !== 'object' || Array.isArray(channels)) return null;
+
+  const result = new Set<string>();
+  for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
+    if (key === 'defaults') continue;
+    // Non-object entry (e.g. channels.slack = true) — treat as configured
+    if (typeof value !== 'object' || value === null) {
+      result.add(key);
+      continue;
+    }
+    const entry = value as Record<string, unknown>;
+    if (entry.enabled !== false) {
+      result.add(key);
+    }
+  }
+  return result;
+}
+
+/**
+ * Maps each binding to { binding, channelType, status }.
+ * When configuredChannels is null, all bindings get status 'unknown'.
+ */
+export function classifyBindings(
+  bindings: Binding[],
+  configuredChannels: Set<string> | null,
+): ClassifiedBinding[] {
+  return bindings.map((binding) => {
+    const channelType = extractChannelType(binding.channel);
+    let status: ClassifiedBinding['status'];
+    if (configuredChannels === null) {
+      status = 'unknown';
+    } else if (configuredChannels.has(channelType)) {
+      status = 'configured';
+    } else {
+      status = 'unconfigured';
+    }
+    return { binding, channelType, status };
+  });
+}
+
+/**
+ * Returns the filtered binding list: keeps 'configured' and 'unknown', drops 'unconfigured'.
+ * Used in --yes fresh/force installs and as the default selection for the interactive checkbox.
+ */
+export function resolveSelectedBindings(
+  classifiedBindings: ClassifiedBinding[],
+): Binding[] {
+  return classifiedBindings
+    .filter((cb) => cb.status !== 'unconfigured')
+    .map((cb) => cb.binding);
 }

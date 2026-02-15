@@ -22,6 +22,9 @@ import {
   removeBinding,
   setAgentToAgent,
   removeAgentToAgent,
+  getConfiguredChannels,
+  classifyBindings,
+  resolveSelectedBindings,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -34,7 +37,7 @@ import {
 import { generateAgentsMd } from '../core/agents-md-generator.js';
 import { listFiles } from '../utils/fs.js';
 import { icons, header, label, value, table } from '../utils/output.js';
-import type { ReefManifest } from '../types/manifest.js';
+import type { ReefManifest, Binding } from '../types/manifest.js';
 import type {
   FormationState,
   AgentState,
@@ -161,6 +164,10 @@ async function _install(
   const { config, path: configPath } = await readConfig();
   const existingState = await loadState(namespace, manifest.name);
 
+  // Channel availability for binding selection
+  const configuredChannels = getConfiguredChannels(config);
+  const classifiedBindingsList = classifyBindings(manifest.bindings ?? [], configuredChannels);
+
   // DRY-RUN: report conflicts and planned changes, then exit cleanly
   if (options.dryRun) {
     console.log('');
@@ -207,10 +214,15 @@ async function _install(
         `  + Agent ${slug} → ${agentId}${agentDef.model ? ` (model: ${agentDef.model})` : ''}`,
       );
     }
-    for (const binding of manifest.bindings ?? []) {
-      const resolvedAgentId = idValidation.ids.get(binding.agent);
+    for (const cb of classifiedBindingsList) {
+      const resolvedAgentId = idValidation.ids.get(cb.binding.agent);
       if (resolvedAgentId) {
-        console.log(`  + Binding ${binding.channel} → ${resolvedAgentId}`);
+        const isFreshOrForce = !options.merge;
+        const skipAnnotation =
+          isFreshOrForce && cb.status === 'unconfigured'
+            ? ' (channel not configured — would be skipped)'
+            : '';
+        console.log(`  + Binding ${cb.binding.channel} → ${resolvedAgentId}${skipAnnotation}`);
       }
     }
     for (const cronEntry of manifest.cron ?? []) {
@@ -362,6 +374,7 @@ async function _install(
   }
 
   // ── Phase 5: Confirm ──
+  let interactiveSelectedBindings: Binding[] | undefined;
   if (!options.yes && !options.merge) {
     console.log('');
     console.log(header('Deployment Plan'));
@@ -383,12 +396,18 @@ async function _install(
     console.log(table(agentRows));
 
     // Bindings
-    if (manifest.bindings?.length) {
+    if (classifiedBindingsList.length > 0) {
       console.log('');
       console.log(label('Channel Bindings:'));
-      for (const b of manifest.bindings) {
+      for (const cb of classifiedBindingsList) {
+        const statusTag =
+          cb.status === 'configured'
+            ? chalk.green(' (configured)')
+            : cb.status === 'unconfigured'
+              ? chalk.yellow(' (not configured)')
+              : '';
         console.log(
-          `  ${b.channel} → ${namespace}-${b.agent}`,
+          `  ${cb.binding.channel} → ${namespace}-${cb.binding.agent}${statusTag}`,
         );
       }
     }
@@ -417,11 +436,62 @@ async function _install(
     }
 
     console.log('');
-    const { confirm } = await import('@inquirer/prompts');
+    const { confirm, checkbox } = await import('@inquirer/prompts');
+
+    // Interactive binding selection for fresh/force installs with unconfigured bindings
+    const hasUnconfigured = classifiedBindingsList.some(
+      (cb) => cb.status === 'unconfigured',
+    );
+    if (hasUnconfigured && !options.merge) {
+      const choices = classifiedBindingsList.map((cb) => ({
+        name: `${cb.binding.channel} → ${namespace}-${cb.binding.agent} [${cb.status}]`,
+        value: cb.binding,
+        checked: cb.status !== 'unconfigured',
+      }));
+      interactiveSelectedBindings = await checkbox({
+        message: 'Select bindings to wire (unconfigured channels are unchecked):',
+        choices,
+      });
+    }
+
     const proceed = await confirm({ message: 'Deploy this formation?' });
     if (!proceed) {
       console.log('Aborted.');
       process.exit(0);
+    }
+  }
+
+  // Compute selectedBindings based on mode and user choices
+  let selectedBindings: Binding[];
+  if (options.merge) {
+    // --merge wires all manifest bindings, no channel filtering
+    selectedBindings = manifest.bindings ?? [];
+  } else if (!options.yes) {
+    // Interactive path: use checkbox result if it was shown, otherwise default
+    selectedBindings =
+      typeof interactiveSelectedBindings !== 'undefined'
+        ? interactiveSelectedBindings
+        : resolveSelectedBindings(classifiedBindingsList);
+  } else {
+    // --yes non-interactive path
+    if (configuredChannels !== null) {
+      const skippedTypes = [
+        ...new Set(
+          classifiedBindingsList
+            .filter((cb) => cb.status === 'unconfigured')
+            .map((cb) => cb.channelType),
+        ),
+      ].sort();
+      if (skippedTypes.length > 0) {
+        for (const ct of skippedTypes) {
+          console.log(
+            `${icons.warning} ${chalk.yellow(`Skipping bindings for unconfigured channel: ${ct}`)}`,
+          );
+        }
+      }
+      selectedBindings = resolveSelectedBindings(classifiedBindingsList);
+    } else {
+      selectedBindings = manifest.bindings ?? [];
     }
   }
 
@@ -526,7 +596,7 @@ async function _install(
   }
 
   // Map bindings — use validated IDs from the map, not raw string composition
-  for (const binding of manifest.bindings ?? []) {
+  for (const binding of selectedBindings) {
     if (binding.direction) {
       console.log(
         `\n${icons.warning} ${chalk.yellow(`'direction' field in binding ${binding.channel} → ${binding.agent} is ignored (OpenClaw bindings are always inbound)`)}`,
@@ -790,8 +860,16 @@ async function _install(
 
   deploySpinner.succeed('Formation deployed');
   console.log('');
+  const totalManifestBindings = (manifest.bindings ?? []).length;
+  const skippedBindings = !options.merge
+    ? totalManifestBindings - selectedBindings.length
+    : 0;
+  const skippedSuffix =
+    skippedBindings > 0
+      ? `, ${skippedBindings} skipped (unconfigured channels)`
+      : '';
   console.log(
-    `${icons.success} ${chalk.green(`${Object.keys(agentStates).length} agents deployed, ${openClawBindings.length} bindings wired, ${cronJobStates.length} cron jobs scheduled`)}`,
+    `${icons.success} ${chalk.green(`${Object.keys(agentStates).length} agents deployed, ${openClawBindings.length} bindings wired, ${cronJobStates.length} cron jobs scheduled${skippedSuffix}`)}`,
   );
   console.log('');
   console.log(
