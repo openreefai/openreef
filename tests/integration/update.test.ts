@@ -451,4 +451,52 @@ describe('reef update', () => {
     const state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(2);
   });
+
+  it('update is idempotent for templates with {{tools}}', async () => {
+    // SOUL.md with tools token
+    await writeFile(
+      join(formationDir, 'agents', 'triage', 'SOUL.md'),
+      'Tools:\n{{tools}}\nEnd.',
+    );
+
+    // Formation with tools and skills
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+            tools: { allow: ['web-search', 'calculator'] },
+          },
+        },
+        dependencies: {
+          skills: { 'web-search': '^1.2.0' },
+        },
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Verify tools were interpolated
+    const workspaceDir = join(tempHome, 'workspace-testns-triage');
+    const soulContent = await readFile(join(workspaceDir, 'SOUL.md'), 'utf-8');
+    expect(soulContent).toContain('- **web-search** (^1.2.0)');
+    expect(soulContent).toContain('- **calculator**');
+
+    // Second update with identical manifest should be no-op
+    const state1 = await loadState('testns', 'test-formation');
+    await update(formationDir, { yes: true });
+    const state2 = await loadState('testns', 'test-formation');
+
+    // File hashes should be identical — no perpetual "changed files"
+    expect(state2?.fileHashes).toEqual(state1?.fileHashes);
+  });
 });

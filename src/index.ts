@@ -12,13 +12,14 @@ import { status } from './commands/status.js';
 import { repair } from './commands/repair.js';
 import { update } from './commands/update.js';
 import { logs } from './commands/logs.js';
+import { VERSION } from './version.js';
 
 const program = new Command();
 
 program
   .name('reef')
   .description('OpenReef CLI — package and deploy multi-agent formations')
-  .version('0.3.5');
+  .version(VERSION);
 
 program
   .command('init [name]')

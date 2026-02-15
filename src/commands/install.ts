@@ -7,7 +7,7 @@ import { loadManifest } from '../core/manifest-loader.js';
 import { validateSchema } from '../core/schema-validator.js';
 import { validateStructure } from '../core/structural-validator.js';
 import { resolveVariables } from '../core/variable-resolver.js';
-import { interpolate } from '../core/template-interpolator.js';
+import { interpolate, buildToolsList } from '../core/template-interpolator.js';
 import {
   resolveWorkspacePath,
   resolveGatewayUrl,
@@ -161,6 +161,9 @@ async function _install(
     );
     process.exit(1);
   }
+
+  // Inject built-in variable: namespace
+  resolvedVars.namespace = namespace;
 
   // ── Phase 3: Conflicts ──
   const { config, path: configPath } = await readConfig();
@@ -588,7 +591,11 @@ async function _install(
 
       let content = rawBytes.toString('utf-8');
       if (TOKEN_RE.test(content)) {
-        content = interpolate(content, resolvedVars);
+        const agentVars = {
+          ...resolvedVars,
+          tools: buildToolsList(agentDef.tools?.allow, manifest.dependencies?.skills),
+        };
+        content = interpolate(content, agentVars);
       }
 
       const written = Buffer.from(content, 'utf-8');

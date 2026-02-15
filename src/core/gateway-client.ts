@@ -8,6 +8,7 @@ import {
   loadDeviceAuthToken,
   storeDeviceAuthToken,
 } from './device-identity.js';
+import { VERSION } from '../version.js';
 
 const PROTOCOL_VERSION = 3;
 const CLIENT_ID = 'cli';
@@ -198,7 +199,7 @@ export class GatewayClient {
           maxProtocol: PROTOCOL_VERSION,
           client: {
             id: CLIENT_ID,
-            version: '0.3.5',
+            version: VERSION,
             platform: process.platform,
             mode: CLIENT_MODE,
           },

@@ -100,8 +100,9 @@ describe('reef install', () => {
     );
     expect(soulContent).toContain('support');
     expect(soulContent).not.toContain('{{MISSION}}');
-    // {{namespace}} is not declared as a variable, so it stays as-is per the interpolator
-    expect(soulContent).toContain('{{namespace}}');
+    // {{namespace}} is a built-in variable, should be interpolated
+    expect(soulContent).toContain('testns');
+    expect(soulContent).not.toContain('{{namespace}}');
 
     // State file should exist
     const stateDir = join(tempHome, '.reef');
@@ -710,5 +711,49 @@ describe('reef install', () => {
     // Workspace should still exist
     const workspaceDir = join(tempHome, 'workspace-testns-triage');
     expect(existsSync(workspaceDir)).toBe(true);
+  });
+
+  it('interpolates {{tools}} built-in variable per agent', async () => {
+    // SOUL.md with tools token
+    await writeFile(
+      join(formationDir, 'agents', 'triage', 'SOUL.md'),
+      'Tools:\n{{tools}}\nEnd.',
+    );
+
+    // Formation with tools and skills
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+            tools: { allow: ['web-search', 'calculator'] },
+          },
+        },
+        dependencies: {
+          skills: { 'web-search': '^1.2.0' },
+        },
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    const workspaceDir = join(tempHome, 'workspace-testns-triage');
+    const soulContent = await readFile(
+      join(workspaceDir, 'SOUL.md'),
+      'utf-8',
+    );
+
+    expect(soulContent).toContain('- **web-search** (^1.2.0)');
+    expect(soulContent).toContain('- **calculator**');
+    expect(soulContent).not.toContain('{{tools}}');
   });
 });
