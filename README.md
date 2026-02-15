@@ -128,12 +128,18 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 
 | Command | Description |
 |---------|-------------|
-| `reef init` | Scaffold a new formation |
+| `reef init [name]` | Scaffold a new formation from the bundled template |
+| `reef inspect <path>` | Parse reef.json and pretty-print formation contents |
+| `reef validate <path>` | Run schema and structural validation on a formation |
+| `reef pack <path>` | Package a formation into a `.tar.gz` archive |
+
+**Planned** (requires running OpenClaw):
+
+| Command | Description |
+|---------|-------------|
 | `reef install <path>` | Deploy a formation to OpenClaw |
 | `reef update <path>` | Update a deployed formation (preserves agent-written data) |
 | `reef uninstall <name>` | Remove a formation and all its resources |
-| `reef inspect <path>` | Preview what a formation will deploy |
-| `reef validate <path>` | Run health checks on a deployed formation |
 | `reef export <namespace>` | Snapshot running agents into a formation package |
 | `reef lock` | Pin dependency versions with integrity digests |
 | `reef list` | List installed formations |
@@ -152,16 +158,24 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 ```
 openreef/
 ├── SPEC.md                    # Full format specification
+├── package.json               # @openreef/cli package
 ├── schema/
 │   └── reef.schema.json       # JSON Schema for reef.json validation
-└── template/                  # Starter formation template
-    ├── reef.json
-    ├── reef.lock.json
-    ├── .env.example
-    ├── README.md
-    └── agents/
-        ├── manager/
-        └── researcher/
+├── template/                  # Starter formation template
+│   ├── reef.json
+│   ├── reef.lock.json
+│   ├── .env.example
+│   ├── README.md
+│   └── agents/
+│       ├── manager/
+│       └── researcher/
+├── src/                       # CLI source (TypeScript, ESM)
+│   ├── index.ts               # Entry point — shebang + commander setup
+│   ├── types/                 # ReefManifest, PlatformAdapter, ValidationResult
+│   ├── core/                  # Manifest loader, schema/structural validators, packer
+│   ├── commands/              # init, inspect, validate, pack
+│   └── utils/                 # Path resolution, chalk helpers, fs utilities
+└── tests/                     # Vitest — unit, integration, and type drift tests
 ```
 
 - **[`SPEC.md`](SPEC.md)** — The complete formation format specification: manifest schema, inter-agent communication, variable interpolation, install flow, CLI commands, security model, and update/uninstall behavior.
