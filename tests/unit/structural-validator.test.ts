@@ -10,7 +10,7 @@ let tempDir: string;
 function baseManifest(overrides?: Partial<ReefManifest>): ReefManifest {
   return {
     reef: '1.0',
-    type: 'team',
+    type: 'shoal',
     name: 'test',
     version: '0.1.0',
     description: 'Test',

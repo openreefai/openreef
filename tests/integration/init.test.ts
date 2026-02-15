@@ -38,7 +38,7 @@ describe('reef init', () => {
     const manifest = JSON.parse(manifestRaw);
     expect(manifest.name).toBe(name);
     expect(manifest.namespace).toBe(name);
-    expect(manifest.type).toBe('team');
+    expect(manifest.type).toBe('shoal');
 
     // Check .env.example was generated
     const envExample = await readFile(join(formationDir, '.env.example'), 'utf-8');

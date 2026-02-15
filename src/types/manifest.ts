@@ -66,7 +66,7 @@ export interface Compatibility {
 
 export interface ReefManifest {
   reef: '1.0';
-  type: 'solo' | 'team' | 'swarm';
+  type: 'solo' | 'shoal' | 'school';
   name: string;
   version: string;
   description: string;

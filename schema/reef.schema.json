@@ -14,8 +14,8 @@
     },
     "type": {
       "type": "string",
-      "description": "Formation category: solo (1 agent), team (2-5 agents), or swarm (6+ agents).",
-      "enum": ["solo", "team", "swarm"]
+      "description": "Formation category: solo (1 agent), shoal (2-5 agents), or school (6+ agents).",
+      "enum": ["solo", "shoal", "school"]
     },
     "name": {
       "type": "string",

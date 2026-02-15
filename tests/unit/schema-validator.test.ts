@@ -3,7 +3,7 @@ import { validateSchema } from '../../src/core/schema-validator.js';
 
 const VALID_MANIFEST = {
   reef: '1.0',
-  type: 'team',
+  type: 'shoal',
   name: 'test-formation',
   version: '0.1.0',
   description: 'A test formation',

@@ -18,7 +18,7 @@ program
   .description('Scaffold a new formation from the bundled template')
   .option('--name <name>', 'Formation name')
   .option('--namespace <namespace>', 'Namespace prefix')
-  .option('--type <type>', 'Formation type (solo, team, swarm)', 'team')
+  .option('--type <type>', 'Formation type (solo, shoal, school)', 'shoal')
   .option('--yes', 'Skip confirmation prompts')
   .action(async (name, options) => {
     try {

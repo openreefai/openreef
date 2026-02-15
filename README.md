@@ -44,8 +44,8 @@ my-formation/
 | Type | Agents | Use Case |
 |------|--------|----------|
 | `solo` | 1 | Single agent with curated personality, tools, and cron |
-| `team` | 2–5 | Defined roles with explicit communication topology |
-| `swarm` | 6+ | Large-scale or dynamically-spawning agent patterns |
+| `shoal` | 2–5 | Defined roles with explicit communication topology |
+| `school` | 6+ | Large-scale or dynamically-spawning agent patterns |
 
 ## Quick Start
 
@@ -83,7 +83,7 @@ A single JSON file declares your entire formation:
 ```json
 {
   "reef": "1.0",
-  "type": "team",
+  "type": "shoal",
   "name": "my-formation",
   "version": "1.0.0",
   "description": "A research team with a manager and researcher",

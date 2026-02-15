@@ -78,7 +78,7 @@ The manifest is the single source of truth for a formation's configuration. It i
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `reef` | `string` | Yes | Spec version. Must be `"1.0"` for this version. |
-| `type` | `string` | Yes | Formation category: `"solo"`, `"team"`, or `"swarm"` |
+| `type` | `string` | Yes | Formation category: `"solo"`, `"shoal"`, or `"school"` |
 | `name` | `string` | Yes | Formation name (lowercase, hyphens allowed) |
 | `version` | `string` | Yes | Semantic version (e.g., `"1.0.0"`) |
 | `description` | `string` | Yes | Brief description of what the formation does |
@@ -99,10 +99,10 @@ The manifest is the single source of truth for a formation's configuration. It i
 | Type | Description |
 |------|-------------|
 | `solo` | Single agent with curated SOUL.md, tools, and cron |
-| `team` | 2–5 agents with defined roles and communication topology |
-| `swarm` | 6+ agents or dynamically-spawning agent patterns |
+| `shoal` | 2–5 agents with defined roles and communication topology |
+| `school` | 6+ agents or dynamically-spawning agent patterns |
 
-In v1.0, the `type` field is **metadata only** — used for marketplace filtering and cataloging. The installer logic is identical for all types. Future versions may introduce specific orchestration logic for `swarm` types.
+In v1.0, the `type` field is **metadata only** — used for marketplace filtering and cataloging. The installer logic is identical for all types. Future versions may introduce specific orchestration logic for `school` types.
 
 ### Compatibility
 
@@ -635,7 +635,7 @@ A full `reef.json` for a customer support team formation:
 ```json
 {
   "reef": "1.0",
-  "type": "team",
+  "type": "shoal",
   "name": "customer-support",
   "version": "1.0.0",
   "description": "A customer support team with triage, knowledge base, and escalation agents",

@@ -16,7 +16,7 @@ describe('reef inspect', () => {
     const { stdout } = await runCli('inspect', TEMPLATE);
     expect(stdout).toContain('my-formation');
     expect(stdout).toContain('0.1.0');
-    expect(stdout).toContain('team');
+    expect(stdout).toContain('shoal');
   });
 
   it('prints agents section', async () => {

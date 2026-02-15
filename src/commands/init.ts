@@ -9,7 +9,7 @@ import type { ReefManifest, Variable } from '../types/manifest.js';
 export interface InitOptions {
   name?: string;
   namespace?: string;
-  type?: 'solo' | 'team' | 'swarm';
+  type?: 'solo' | 'shoal' | 'school';
   yes?: boolean;
 }
 
@@ -38,7 +38,7 @@ export async function init(
 ): Promise<void> {
   const name = nameArg ?? options.name ?? 'my-formation';
   const namespace = options.namespace ?? name;
-  const type = options.type ?? 'team';
+  const type = options.type ?? 'shoal';
 
   const targetDir = resolve(name);
 

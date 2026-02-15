@@ -100,19 +100,19 @@ export async function validateStructure(
       path: 'type',
     });
   }
-  if (manifest.type === 'team' && (agentCount < 2 || agentCount > 5)) {
+  if (manifest.type === 'shoal' && (agentCount < 2 || agentCount > 5)) {
     issues.push({
       severity: 'warning',
       code: 'TYPE_COUNT_MISMATCH',
-      message: `Formation type is "team" but has ${agentCount} agent(s) (expected 2-5)`,
+      message: `Formation type is "shoal" but has ${agentCount} agent(s) (expected 2-5)`,
       path: 'type',
     });
   }
-  if (manifest.type === 'swarm' && agentCount < 6) {
+  if (manifest.type === 'school' && agentCount < 6) {
     issues.push({
       severity: 'warning',
       code: 'TYPE_COUNT_MISMATCH',
-      message: `Formation type is "swarm" but has ${agentCount} agent(s) (expected 6+)`,
+      message: `Formation type is "school" but has ${agentCount} agent(s) (expected 6+)`,
       path: 'type',
     });
   }

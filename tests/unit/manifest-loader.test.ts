@@ -18,7 +18,7 @@ describe('manifest-loader', () => {
   it('loads a valid reef.json', async () => {
     const manifest = {
       reef: '1.0',
-      type: 'team',
+      type: 'shoal',
       name: 'test',
       version: '0.1.0',
       description: 'Test',
