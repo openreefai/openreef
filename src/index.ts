@@ -5,13 +5,17 @@ import { inspect } from './commands/inspect.js';
 import { validate } from './commands/validate.js';
 import { init } from './commands/init.js';
 import { pack } from './commands/pack.js';
+import { install } from './commands/install.js';
+import { uninstall } from './commands/uninstall.js';
+import { list } from './commands/list.js';
+import { status } from './commands/status.js';
 
 const program = new Command();
 
 program
   .name('reef')
   .description('OpenReef CLI — package and deploy multi-agent formations')
-  .version('0.1.0');
+  .version('0.2.0');
 
 program
   .command('init [name]')
@@ -63,6 +67,72 @@ program
   .action(async (path, options) => {
     try {
       await pack(path, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('install <path>')
+  .description('Deploy a formation to OpenClaw')
+  .option('--set <key=value...>', 'Set variable values')
+  .option('--namespace <ns>', 'Override namespace (default: manifest.namespace)')
+  .option('--force', 'Remove existing resources and recreate')
+  .option('--merge', 'Update files only, preserve agent config')
+  .option('--yes', 'Skip confirmation prompts')
+  .option('--no-env', 'Skip loading .env file')
+  .option('--gateway-url <url>', 'Gateway WebSocket URL')
+  .option('--gateway-token <token>', 'Gateway auth token')
+  .option('--gateway-password <password>', 'Gateway auth password')
+  .action(async (path, options) => {
+    try {
+      await install(path, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('uninstall <identifier>')
+  .description('Remove an installed formation (namespace/name or name)')
+  .option('--yes', 'Skip confirmation')
+  .option('--gateway-url <url>', 'Gateway WebSocket URL')
+  .option('--gateway-token <token>', 'Gateway auth token')
+  .option('--gateway-password <password>', 'Gateway auth password')
+  .action(async (identifier, options) => {
+    try {
+      await uninstall(identifier, options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('list')
+  .description('List installed formations')
+  .option('--json', 'Output as JSON')
+  .action(async (options) => {
+    try {
+      await list(options);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('status <identifier>')
+  .description('Show status of an installed formation (namespace/name or name)')
+  .option('--json', 'Output as JSON')
+  .option('--gateway-url <url>', 'Gateway WebSocket URL')
+  .option('--gateway-token <token>', 'Gateway auth token')
+  .option('--gateway-password <password>', 'Gateway auth password')
+  .action(async (identifier, options) => {
+    try {
+      await status(identifier, options);
     } catch (err) {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);

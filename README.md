@@ -126,6 +126,8 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 
 ## CLI
 
+### Offline Commands
+
 | Command | Description |
 |---------|-------------|
 | `reef init [name]` | Scaffold a new formation from the bundled template |
@@ -133,17 +135,22 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 | `reef validate <path>` | Run schema and structural validation on a formation |
 | `reef pack <path>` | Package a formation into a `.tar.gz` archive |
 
-**Planned** (requires running OpenClaw):
+### Online Commands (requires running OpenClaw)
 
 | Command | Description |
 |---------|-------------|
 | `reef install <path>` | Deploy a formation to OpenClaw |
+| `reef uninstall <identifier>` | Remove a formation and all its resources |
+| `reef list` | List installed formations |
+| `reef status <identifier>` | Show status of a deployed formation |
+
+**Planned:**
+
+| Command | Description |
+|---------|-------------|
 | `reef update <path>` | Update a deployed formation (preserves agent-written data) |
-| `reef uninstall <name>` | Remove a formation and all its resources |
 | `reef export <namespace>` | Snapshot running agents into a formation package |
 | `reef lock` | Pin dependency versions with integrity digests |
-| `reef list` | List installed formations |
-| `reef status <name>` | Show status of a deployed formation |
 
 ## Security
 

@@ -1,0 +1,376 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
+import {
+  readConfig,
+  writeConfig,
+  addAgentEntry,
+  removeAgentEntry,
+  addBinding,
+  removeBinding,
+  setAgentToAgent,
+  removeAgentToAgent,
+  bindingsEqual,
+} from '../../src/core/config-patcher.js';
+import type { OpenClawBinding } from '../../src/types/state.js';
+
+let tempDir: string;
+
+describe('config-patcher', () => {
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'reef-config-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ─── readConfig ───────────────────────────────────────────────────
+  describe('readConfig', () => {
+    it('reads JSON5 config and returns parsed + raw + path', async () => {
+      const configPath = join(tempDir, 'openclaw.json');
+      const content = '{ "agents": { "list": [] }, "bindings": [] }';
+      await writeFile(configPath, content);
+
+      const result = await readConfig(configPath);
+      expect(result.path).toBe(configPath);
+      expect(result.raw).toBe(content);
+      expect(result.config).toEqual({ agents: { list: [] }, bindings: [] });
+    });
+
+    it('returns empty config if file is missing', async () => {
+      const configPath = join(tempDir, 'nonexistent.json');
+      const result = await readConfig(configPath);
+      expect(result.config).toEqual({ agents: { list: [] }, bindings: [] });
+      expect(result.raw).toBe('');
+      expect(result.path).toBe(configPath);
+    });
+
+    it('parses JSON5 with comments and trailing commas', async () => {
+      const configPath = join(tempDir, 'openclaw.json');
+      const json5Content = `{
+  // This is a comment
+  "agents": {
+    "list": [
+      { "id": "test", }, // trailing comma
+    ],
+  },
+  "bindings": [],
+}`;
+      await writeFile(configPath, json5Content);
+
+      const result = await readConfig(configPath);
+      expect(result.config.agents).toBeDefined();
+      const agents = result.config.agents as Record<string, unknown>;
+      expect(Array.isArray(agents.list)).toBe(true);
+      expect((agents.list as unknown[]).length).toBe(1);
+    });
+  });
+
+  // ─── writeConfig ──────────────────────────────────────────────────
+  describe('writeConfig', () => {
+    it('writes JSON and creates .bak backup', async () => {
+      const configPath = join(tempDir, 'openclaw.json');
+      const originalContent = '{ "old": true }';
+      await writeFile(configPath, originalContent);
+
+      const newConfig = { agents: { list: [] }, bindings: [] };
+      await writeConfig(configPath, newConfig, { silent: true });
+
+      const written = await readFile(configPath, 'utf-8');
+      expect(JSON.parse(written)).toEqual(newConfig);
+
+      const bakPath = configPath + '.bak';
+      expect(existsSync(bakPath)).toBe(true);
+      const bakContent = await readFile(bakPath, 'utf-8');
+      expect(bakContent).toBe(originalContent);
+    });
+
+    it('writes config even if no prior file exists (no .bak)', async () => {
+      const configPath = join(tempDir, 'new-config.json');
+      const config = { agents: { list: [] } };
+      await writeConfig(configPath, config, { silent: true });
+
+      const written = await readFile(configPath, 'utf-8');
+      expect(JSON.parse(written)).toEqual(config);
+      expect(existsSync(configPath + '.bak')).toBe(false);
+    });
+  });
+
+  // ─── JSON5 regression test ────────────────────────────────────────
+  describe('JSON5 regression', () => {
+    it('read JSON5 with comments, write back as clean JSON, .bak preserves original', async () => {
+      const configPath = join(tempDir, 'openclaw.json');
+      const json5Content = `{
+  // Gateway settings
+  "gateway": {
+    "port": 18789,
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "my-agent",
+        "name": "My Agent", // inline comment
+      },
+    ],
+  },
+  "bindings": [],
+}`;
+      await writeFile(configPath, json5Content);
+
+      // Read the JSON5 config
+      const { config } = await readConfig(configPath);
+
+      // Write it back as JSON
+      await writeConfig(configPath, config, { silent: true });
+
+      // Verify the output is valid JSON (no comments, no trailing commas)
+      const written = await readFile(configPath, 'utf-8');
+      expect(() => JSON.parse(written)).not.toThrow();
+      const parsed = JSON.parse(written);
+      expect(parsed.gateway.port).toBe(18789);
+      expect((parsed.agents.list as unknown[])[0]).toMatchObject({
+        id: 'my-agent',
+        name: 'My Agent',
+      });
+
+      // Verify .bak file preserves original JSON5
+      const bakContent = await readFile(configPath + '.bak', 'utf-8');
+      expect(bakContent).toBe(json5Content);
+      expect(bakContent).toContain('// Gateway settings');
+      expect(bakContent).toContain('// inline comment');
+    });
+  });
+
+  // ─── addAgentEntry ────────────────────────────────────────────────
+  describe('addAgentEntry', () => {
+    it('adds to agents.list[]', () => {
+      const config: Record<string, unknown> = {};
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'test-agent', name: 'Test Agent' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe('test-agent');
+      expect(list[0].name).toBe('Test Agent');
+      expect(list[0].workspace).toBe(join(tempDir, 'workspace-test-agent'));
+    });
+
+    it('is idempotent — no duplicate if same id', () => {
+      const config: Record<string, unknown> = {};
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'test-agent', name: 'Agent' }, env);
+      addAgentEntry(config, { id: 'test-agent', name: 'Agent V2' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(1);
+    });
+
+    it('adds multiple agents with different ids', () => {
+      const config: Record<string, unknown> = {};
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'agent-a', name: 'A' }, env);
+      addAgentEntry(config, { id: 'agent-b', name: 'B' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(2);
+    });
+  });
+
+  // ─── removeAgentEntry ─────────────────────────────────────────────
+  describe('removeAgentEntry', () => {
+    it('removes from agents.list[]', () => {
+      const config: Record<string, unknown> = {
+        agents: { list: [{ id: 'agent-a' }, { id: 'agent-b' }] },
+      };
+      removeAgentEntry(config, 'agent-a');
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe('agent-b');
+    });
+
+    it('no-ops if agent not in list', () => {
+      const config: Record<string, unknown> = {
+        agents: { list: [{ id: 'agent-a' }] },
+      };
+      removeAgentEntry(config, 'nonexistent');
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(1);
+    });
+  });
+
+  // ─── addBinding ───────────────────────────────────────────────────
+  describe('addBinding', () => {
+    const binding: OpenClawBinding = {
+      agentId: 'ns-worker',
+      match: { channel: 'slack', accountId: 'T123' },
+    };
+
+    it('adds to bindings[]', () => {
+      const config: Record<string, unknown> = {};
+      addBinding(config, binding);
+
+      const bindings = config.bindings as OpenClawBinding[];
+      expect(bindings).toHaveLength(1);
+      expect(bindings[0].agentId).toBe('ns-worker');
+    });
+
+    it('is idempotent', () => {
+      const config: Record<string, unknown> = {};
+      addBinding(config, binding);
+      addBinding(config, binding);
+
+      const bindings = config.bindings as OpenClawBinding[];
+      expect(bindings).toHaveLength(1);
+    });
+  });
+
+  // ─── removeBinding ────────────────────────────────────────────────
+  describe('removeBinding', () => {
+    const binding: OpenClawBinding = {
+      agentId: 'ns-worker',
+      match: { channel: 'slack', accountId: 'T123' },
+    };
+
+    it('removes from bindings[]', () => {
+      const config: Record<string, unknown> = { bindings: [binding] };
+      removeBinding(config, binding);
+
+      const bindings = config.bindings as OpenClawBinding[];
+      expect(bindings).toHaveLength(0);
+    });
+
+    it('no-ops if binding not present', () => {
+      const config: Record<string, unknown> = { bindings: [] };
+      removeBinding(config, binding);
+
+      const bindings = config.bindings as OpenClawBinding[];
+      expect(bindings).toHaveLength(0);
+    });
+  });
+
+  // ─── setAgentToAgent ──────────────────────────────────────────────
+  describe('setAgentToAgent', () => {
+    it('sets enabled=true and merges namespace pattern into allow list', () => {
+      const config: Record<string, unknown> = {};
+      setAgentToAgent(config, 'myns');
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      expect(a2a.enabled).toBe(true);
+      expect(a2a.allow).toContain('myns-*');
+    });
+
+    it('is idempotent — does not duplicate pattern', () => {
+      const config: Record<string, unknown> = {};
+      setAgentToAgent(config, 'myns');
+      setAgentToAgent(config, 'myns');
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      const allow = a2a.allow as string[];
+      expect(allow.filter((p) => p === 'myns-*')).toHaveLength(1);
+    });
+
+    it('preserves existing allow entries', () => {
+      const config: Record<string, unknown> = {
+        tools: { agentToAgent: { enabled: true, allow: ['other-*'] } },
+      };
+      setAgentToAgent(config, 'myns');
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      const allow = a2a.allow as string[];
+      expect(allow).toContain('other-*');
+      expect(allow).toContain('myns-*');
+    });
+  });
+
+  // ─── removeAgentToAgent ───────────────────────────────────────────
+  describe('removeAgentToAgent', () => {
+    it('removes namespace pattern from allow list', () => {
+      const config: Record<string, unknown> = {
+        tools: { agentToAgent: { enabled: true, allow: ['myns-*', 'other-*'] } },
+      };
+      removeAgentToAgent(config, 'myns', false);
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      const allow = a2a.allow as string[];
+      expect(allow).not.toContain('myns-*');
+      expect(allow).toContain('other-*');
+    });
+
+    it('disables when wasEnabled=false and no other formations in namespace', () => {
+      const config: Record<string, unknown> = {
+        tools: { agentToAgent: { enabled: true, allow: ['myns-*'] } },
+      };
+      removeAgentToAgent(config, 'myns', false, false);
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      expect(a2a.enabled).toBe(false);
+    });
+
+    it('keeps enabled when other formations exist in namespace', () => {
+      const config: Record<string, unknown> = {
+        tools: { agentToAgent: { enabled: true, allow: ['myns-*'] } },
+      };
+      removeAgentToAgent(config, 'myns', true, false);
+
+      const tools = config.tools as Record<string, unknown>;
+      const a2a = tools.agentToAgent as Record<string, unknown>;
+      // When otherFormationsInNamespace is true, pattern is not removed
+      const allow = a2a.allow as string[];
+      expect(allow).toContain('myns-*');
+    });
+  });
+
+  // ─── bindingsEqual ────────────────────────────────────────────────
+  describe('bindingsEqual', () => {
+    it('returns true for equivalent bindings regardless of key order', () => {
+      const a: OpenClawBinding = {
+        agentId: 'ns-worker',
+        match: { channel: 'slack', accountId: 'T123' },
+      };
+      const b: OpenClawBinding = {
+        match: { accountId: 'T123', channel: 'slack' },
+        agentId: 'ns-worker',
+      };
+      expect(bindingsEqual(a, b)).toBe(true);
+    });
+
+    it('returns false for different bindings', () => {
+      const a: OpenClawBinding = {
+        agentId: 'ns-worker',
+        match: { channel: 'slack' },
+      };
+      const b: OpenClawBinding = {
+        agentId: 'ns-worker',
+        match: { channel: 'discord' },
+      };
+      expect(bindingsEqual(a, b)).toBe(false);
+    });
+
+    it('returns false when agentIds differ', () => {
+      const a: OpenClawBinding = {
+        agentId: 'ns-a',
+        match: { channel: 'slack' },
+      };
+      const b: OpenClawBinding = {
+        agentId: 'ns-b',
+        match: { channel: 'slack' },
+      };
+      expect(bindingsEqual(a, b)).toBe(false);
+    });
+  });
+});
