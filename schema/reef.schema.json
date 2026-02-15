@@ -176,12 +176,6 @@
           "agent": {
             "type": "string",
             "description": "Agent slug to bind."
-          },
-          "direction": {
-            "type": "string",
-            "description": "Binding direction.",
-            "enum": ["inbound", "outbound", "bidirectional"],
-            "default": "bidirectional"
           }
         }
       }

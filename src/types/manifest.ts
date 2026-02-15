@@ -27,7 +27,6 @@ export interface Variable {
 export interface Binding {
   channel: string;
   agent: string;
-  direction?: 'inbound' | 'outbound' | 'bidirectional';
 }
 
 export interface CronJob {

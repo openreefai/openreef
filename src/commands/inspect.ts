@@ -87,10 +87,10 @@ export async function inspect(path: string): Promise<void> {
   if (manifest.bindings && manifest.bindings.length > 0) {
     console.log(`\n${header('Bindings')}`);
     const bindingRows: string[][] = [
-      [chalk.dim('Channel'), chalk.dim('Agent'), chalk.dim('Direction')],
+      [chalk.dim('Channel'), chalk.dim('Agent')],
     ];
     for (const b of manifest.bindings) {
-      bindingRows.push([value(b.channel), value(b.agent), b.direction ?? 'bidirectional']);
+      bindingRows.push([value(b.channel), value(b.agent)]);
     }
     console.log(table(bindingRows));
   }

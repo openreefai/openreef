@@ -597,11 +597,6 @@ async function _install(
 
   // Map bindings — use validated IDs from the map, not raw string composition
   for (const binding of selectedBindings) {
-    if (binding.direction) {
-      console.log(
-        `\n${icons.warning} ${chalk.yellow(`'direction' field in binding ${binding.channel} → ${binding.agent} is ignored (OpenClaw bindings are always inbound)`)}`,
-      );
-    }
     const resolvedAgentId = idValidation.ids.get(binding.agent);
     if (!resolvedAgentId) {
       console.log(
