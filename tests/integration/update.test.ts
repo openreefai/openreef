@@ -127,7 +127,7 @@ describe('reef update', () => {
     expect(existsSync(researcherWs)).toBe(true);
     expect(existsSync(join(researcherWs, 'SOUL.md'))).toBe(true);
 
-    // Verify config has both agents
+    // Verify config has main + both agents
     const { config } = await readConfig(join(tempHome, 'openclaw.json'));
     const list = (
       (config.agents as Record<string, unknown>).list as Record<
@@ -135,7 +135,8 @@ describe('reef update', () => {
         unknown
       >[]
     );
-    expect(list).toHaveLength(2);
+    expect(list).toHaveLength(3); // main + triage + researcher
+    expect(list[0].id).toBe('main');
 
     // Verify state version updated
     const state = await loadState('testns', 'test-formation');
@@ -192,7 +193,7 @@ describe('reef update', () => {
   });
 
   it('update --yes skips net-new bindings for unconfigured channels', async () => {
-    // Install formation with a telegram binding
+    // Install formation with a scoped telegram binding
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -209,7 +210,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram', agent: 'triage' }],
+        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
@@ -220,7 +221,7 @@ describe('reef update', () => {
     config.channels = { telegram: { enabled: true } };
     await writeConfig(configPath, config, { silent: true });
 
-    // Update manifest to add a slack binding alongside telegram
+    // Update manifest to add an unconfigured slack binding alongside telegram
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -238,7 +239,7 @@ describe('reef update', () => {
           },
         },
         bindings: [
-          { channel: 'telegram', agent: 'triage' },
+          { channel: 'telegram:group-123', agent: 'triage' },
           { channel: 'slack:#support', agent: 'triage' },
         ],
       }),
@@ -246,22 +247,22 @@ describe('reef update', () => {
 
     await update(formationDir, { yes: true });
 
-    // Assert: config has only telegram binding (slack not added)
+    // Assert: config has only scoped telegram binding (slack not added — unconfigured)
     const { config: updatedConfig } = await readConfig(configPath);
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'telegram',
+      channel: 'telegram:group-123',
     });
 
-    // Assert: state has only telegram binding
+    // Assert: state has only scoped telegram binding
     const state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(1);
-    expect(state?.bindings[0].match.channel).toBe('telegram');
+    expect(state?.bindings[0].match.channel).toBe('telegram:group-123');
   });
 
-  it('update --yes wires net-new bindings when no channels section (backward compat)', async () => {
-    // Install formation with telegram binding (no channels section)
+  it('update --yes skips bare net-new bindings by default', async () => {
+    // Install formation with a scoped telegram binding
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -278,12 +279,18 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram', agent: 'triage' }],
+        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
 
-    // Update manifest to add a slack binding alongside telegram
+    // Add channels section to config
+    const configPath = join(tempHome, 'openclaw.json');
+    const { config } = await readConfig(configPath);
+    config.channels = { telegram: { enabled: true } };
+    await writeConfig(configPath, config, { silent: true });
+
+    // Update manifest to add a bare telegram binding
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -301,7 +308,132 @@ describe('reef update', () => {
           },
         },
         bindings: [
+          { channel: 'telegram:group-123', agent: 'triage' },
           { channel: 'telegram', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await update(formationDir, { yes: true });
+
+    // Assert: config has only the scoped binding (bare one skipped)
+    const { config: updatedConfig } = await readConfig(configPath);
+    const bindings = updatedConfig.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0] as Record<string, unknown>).match).toEqual({
+      channel: 'telegram:group-123',
+    });
+  });
+
+  it('update --yes --allow-channel-shadow wires bare net-new bindings', async () => {
+    // Install formation with a scoped telegram binding
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+      }),
+    );
+    await install(formationDir, { yes: true });
+
+    // Add channels section
+    const configPath = join(tempHome, 'openclaw.json');
+    const { config } = await readConfig(configPath);
+    config.channels = { telegram: { enabled: true } };
+    await writeConfig(configPath, config, { silent: true });
+
+    // Update manifest to add a bare telegram binding
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.1.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram:group-123', agent: 'triage' },
+          { channel: 'telegram', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await update(formationDir, { yes: true, allowChannelShadow: true });
+
+    // Assert: config has both bindings
+    const { config: updatedConfig } = await readConfig(configPath);
+    const bindings = updatedConfig.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(2);
+
+    const channels = bindings.map(
+      (b) => ((b as Record<string, unknown>).match as Record<string, unknown>).channel,
+    );
+    expect(channels).toContain('telegram:group-123');
+    expect(channels).toContain('telegram');
+  });
+
+  it('update --yes wires net-new scoped bindings when no channels section (backward compat)', async () => {
+    // Install formation with scoped telegram binding (no channels section)
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+      }),
+    );
+    await install(formationDir, { yes: true });
+
+    // Update manifest to add a scoped slack binding alongside telegram
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.1.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram:group-123', agent: 'triage' },
           { channel: 'slack:#support', agent: 'triage' },
         ],
       }),
@@ -309,7 +441,7 @@ describe('reef update', () => {
 
     await update(formationDir, { yes: true });
 
-    // Assert: config has both bindings (configuredChannels null → all unknown → all kept)
+    // Assert: config has both scoped bindings (configuredChannels null → all unknown → scoped kept)
     const configPath = join(tempHome, 'openclaw.json');
     const { config } = await readConfig(configPath);
     const bindings = config.bindings as Record<string, unknown>[];

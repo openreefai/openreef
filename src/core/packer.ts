@@ -1,6 +1,6 @@
 import { create } from 'tar';
 import { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 
 const EXCLUDE_PATTERNS = [
   '.git',
@@ -8,6 +8,7 @@ const EXCLUDE_PATTERNS = [
   '.env',
   '.reef',
   '.DS_Store',
+  'dist',
 ];
 
 export interface PackResult {
@@ -22,7 +23,9 @@ export async function pack(
   outputDir?: string,
 ): Promise<PackResult> {
   const filename = `${name}-${version}.reef.tar.gz`;
-  const outputPath = join(outputDir ?? formationDir, filename);
+  const defaultOut = join(formationDir, 'dist');
+  await mkdir(defaultOut, { recursive: true });
+  const outputPath = join(outputDir ?? defaultOut, filename);
 
   await create(
     {

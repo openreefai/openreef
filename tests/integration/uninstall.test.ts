@@ -109,13 +109,14 @@ describe('reef uninstall', () => {
     // Now uninstall
     await uninstall('testns/test-formation', { yes: true });
 
-    // Config should have empty agents list
+    // Config should have only the seeded "main" agent remaining
     const configRaw = await readFile(
       join(tempHome, 'openclaw.json'),
       'utf-8',
     );
     const config = JSON.parse(configRaw);
-    expect(config.agents.list).toHaveLength(0);
+    expect(config.agents.list).toHaveLength(1);
+    expect(config.agents.list[0].id).toBe('main');
 
     // Bindings should be removed
     expect(config.bindings).toHaveLength(0);
@@ -149,13 +150,14 @@ describe('reef uninstall', () => {
     );
     expect(existsSync(stateFile)).toBe(false);
 
-    // Config should be clean
+    // Config should have only the seeded "main" agent remaining
     const configRaw = await readFile(
       join(tempHome, 'openclaw.json'),
       'utf-8',
     );
     const config = JSON.parse(configRaw);
-    expect(config.agents.list).toHaveLength(0);
+    expect(config.agents.list).toHaveLength(1);
+    expect(config.agents.list[0].id).toBe('main');
   });
 
   it('uninstall with ambiguous bare name fails', async () => {

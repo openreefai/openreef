@@ -100,10 +100,16 @@ export function addAgentEntry(
   env?: NodeJS.ProcessEnv,
 ): Record<string, unknown> {
   const list = ensureAgentsList(config);
+  const normalizedId = agent.id.trim().toLowerCase();
 
-  // Idempotent: skip if agent with same id exists
-  if (list.some((a) => (a as Record<string, unknown>).id === agent.id)) {
+  // Idempotent: skip if agent with same id exists (normalized comparison)
+  if (list.some((a) => String((a as Record<string, unknown>).id).trim().toLowerCase() === normalizedId)) {
     return config;
+  }
+
+  // Seed main when transitioning from empty to populated list
+  if (list.length === 0 && normalizedId !== 'main') {
+    list.unshift({ id: 'main' });
   }
 
   const entry: Record<string, unknown> = {
@@ -227,10 +233,20 @@ function canonicalJson(obj: unknown): string {
 
 // ─── Channel detection utilities ─────────────────────────────────
 
+/**
+ * Returns true when the channel string has no `:scope` suffix.
+ * Bare channels like "telegram" shadow the main agent because they route
+ * ALL messages on that channel to the formation agent.
+ */
+export function isBareChannel(channel: string): boolean {
+  return !channel.trim().includes(':');
+}
+
 export interface ClassifiedBinding {
   binding: Binding;
   channelType: string;
   status: 'configured' | 'unconfigured' | 'unknown';
+  isBare: boolean;
 }
 
 /**
@@ -257,15 +273,16 @@ export function getConfiguredChannels(
 
   const result = new Set<string>();
   for (const [key, value] of Object.entries(channels as Record<string, unknown>)) {
-    if (key === 'defaults') continue;
+    if (key.trim().toLowerCase() === 'defaults') continue;
+    const normalizedKey = key.trim().toLowerCase();
     // Non-object entry (e.g. channels.slack = true) — treat as configured
     if (typeof value !== 'object' || value === null) {
-      result.add(key);
+      result.add(normalizedKey);
       continue;
     }
     const entry = value as Record<string, unknown>;
     if (entry.enabled !== false) {
-      result.add(key);
+      result.add(normalizedKey);
     }
   }
   return result;
@@ -289,18 +306,21 @@ export function classifyBindings(
     } else {
       status = 'unconfigured';
     }
-    return { binding, channelType, status };
+    return { binding, channelType, status, isBare: isBareChannel(binding.channel) };
   });
 }
 
 /**
  * Returns the filtered binding list: keeps 'configured' and 'unknown', drops 'unconfigured'.
+ * Also drops bare-channel bindings unless allowChannelShadow is set.
  * Used in --yes fresh/force installs and as the default selection for the interactive checkbox.
  */
 export function resolveSelectedBindings(
   classifiedBindings: ClassifiedBinding[],
+  options?: { allowChannelShadow?: boolean },
 ): Binding[] {
   return classifiedBindings
     .filter((cb) => cb.status !== 'unconfigured')
+    .filter((cb) => !cb.isBare || options?.allowChannelShadow)
     .map((cb) => cb.binding);
 }

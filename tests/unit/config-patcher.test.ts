@@ -17,6 +17,7 @@ import {
   getConfiguredChannels,
   classifyBindings,
   resolveSelectedBindings,
+  isBareChannel,
 } from '../../src/core/config-patcher.js';
 import type { OpenClawBinding } from '../../src/types/state.js';
 import type { Binding } from '../../src/types/manifest.js';
@@ -151,17 +152,43 @@ describe('config-patcher', () => {
 
   // ─── addAgentEntry ────────────────────────────────────────────────
   describe('addAgentEntry', () => {
-    it('adds to agents.list[]', () => {
+    it('adds to agents.list[] and seeds main when list is empty', () => {
       const config: Record<string, unknown> = {};
       const env = { OPENCLAW_STATE_DIR: tempDir };
       addAgentEntry(config, { id: 'test-agent', name: 'Test Agent' }, env);
 
       const agents = config.agents as Record<string, unknown>;
       const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(2);
+      expect(list[0].id).toBe('main');
+      expect(list[1].id).toBe('test-agent');
+      expect(list[1].name).toBe('Test Agent');
+      expect(list[1].workspace).toBe(join(tempDir, 'workspace-test-agent'));
+    });
+
+    it('does NOT seed main when adding "main" directly', () => {
+      const config: Record<string, unknown> = {};
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'main' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
       expect(list).toHaveLength(1);
-      expect(list[0].id).toBe('test-agent');
-      expect(list[0].name).toBe('Test Agent');
-      expect(list[0].workspace).toBe(join(tempDir, 'workspace-test-agent'));
+      expect(list[0].id).toBe('main');
+    });
+
+    it('does NOT seed main when list already has entries', () => {
+      const config: Record<string, unknown> = {
+        agents: { list: [{ id: 'existing-agent' }] },
+      };
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'test-agent', name: 'Test Agent' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      expect(list).toHaveLength(2);
+      expect(list[0].id).toBe('existing-agent');
+      expect(list[1].id).toBe('test-agent');
     });
 
     it('is idempotent — no duplicate if same id', () => {
@@ -172,7 +199,20 @@ describe('config-patcher', () => {
 
       const agents = config.agents as Record<string, unknown>;
       const list = agents.list as Record<string, unknown>[];
-      expect(list).toHaveLength(1);
+      // main + test-agent = 2 (no duplicate)
+      expect(list).toHaveLength(2);
+    });
+
+    it('is idempotent with case/whitespace variants', () => {
+      const config: Record<string, unknown> = {};
+      const env = { OPENCLAW_STATE_DIR: tempDir };
+      addAgentEntry(config, { id: 'Test-Agent', name: 'Agent' }, env);
+      addAgentEntry(config, { id: ' test-agent ', name: 'Agent V2' }, env);
+
+      const agents = config.agents as Record<string, unknown>;
+      const list = agents.list as Record<string, unknown>[];
+      // main + Test-Agent = 2 (no duplicate from case variant)
+      expect(list).toHaveLength(2);
     });
 
     it('adds multiple agents with different ids', () => {
@@ -183,7 +223,9 @@ describe('config-patcher', () => {
 
       const agents = config.agents as Record<string, unknown>;
       const list = agents.list as Record<string, unknown>[];
-      expect(list).toHaveLength(2);
+      // main + agent-a + agent-b = 3
+      expect(list).toHaveLength(3);
+      expect(list[0].id).toBe('main');
     });
   });
 
@@ -468,6 +510,21 @@ describe('config-patcher', () => {
     });
   });
 
+  // ─── isBareChannel ──────────────────────────────────────────────
+  describe('isBareChannel', () => {
+    it('returns true for bare channel names', () => {
+      expect(isBareChannel('telegram')).toBe(true);
+      expect(isBareChannel(' telegram ')).toBe(true);
+      expect(isBareChannel('slack')).toBe(true);
+    });
+
+    it('returns false for scoped channel names', () => {
+      expect(isBareChannel('telegram:group-123')).toBe(false);
+      expect(isBareChannel('slack:#support')).toBe(false);
+      expect(isBareChannel('discord:guild:channel')).toBe(false);
+    });
+  });
+
   // ─── classifyBindings ────────────────────────────────────────────
   describe('classifyBindings', () => {
     const bindings: Binding[] = [
@@ -499,20 +556,47 @@ describe('config-patcher', () => {
       expect(result[0].channelType).toBe('discord');
       expect(result[0].status).toBe('configured');
     });
+
+    it('sets isBare correctly', () => {
+      const result = classifyBindings(bindings, null);
+      expect(result[0].isBare).toBe(false); // slack:#support — has scope
+      expect(result[1].isBare).toBe(true);  // telegram — bare
+    });
   });
 
   // ─── resolveSelectedBindings ─────────────────────────────────────
   describe('resolveSelectedBindings', () => {
-    it('keeps configured and unknown, drops unconfigured', () => {
+    it('keeps configured and unknown, drops unconfigured and bare', () => {
       const classified = [
-        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'configured' as const },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const },
-        { binding: { channel: 'discord', agent: 'c' }, channelType: 'discord', status: 'unknown' as const },
+        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
+        { binding: { channel: 'discord:general', agent: 'c' }, channelType: 'discord', status: 'unknown' as const, isBare: false },
       ];
       const result = resolveSelectedBindings(classified);
       expect(result).toHaveLength(2);
-      expect(result[0].channel).toBe('slack');
-      expect(result[1].channel).toBe('discord');
+      expect(result[0].channel).toBe('slack:#support');
+      expect(result[1].channel).toBe('discord:general');
+    });
+
+    it('filters bare bindings by default', () => {
+      const classified = [
+        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
+      ];
+      const result = resolveSelectedBindings(classified);
+      expect(result).toHaveLength(1);
+      expect(result[0].channel).toBe('slack:#support');
+    });
+
+    it('keeps bare bindings with allowChannelShadow', () => {
+      const classified = [
+        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
+      ];
+      const result = resolveSelectedBindings(classified, { allowChannelShadow: true });
+      expect(result).toHaveLength(2);
+      expect(result[0].channel).toBe('slack:#support');
+      expect(result[1].channel).toBe('telegram');
     });
 
     it('returns empty for empty input', () => {
@@ -521,19 +605,20 @@ describe('config-patcher', () => {
 
     it('returns empty when all are unconfigured', () => {
       const classified = [
-        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unconfigured' as const },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const },
+        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unconfigured' as const, isBare: true },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
       ];
       expect(resolveSelectedBindings(classified)).toEqual([]);
     });
 
-    it('keeps all when all are unknown', () => {
+    it('keeps scoped unknown bindings, drops bare unknown', () => {
       const classified = [
-        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unknown' as const },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unknown' as const },
+        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'unknown' as const, isBare: false },
+        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unknown' as const, isBare: true },
       ];
       const result = resolveSelectedBindings(classified);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1);
+      expect(result[0].channel).toBe('slack:#support');
     });
   });
 });

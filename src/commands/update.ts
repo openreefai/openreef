@@ -28,6 +28,7 @@ import {
   removeAgentToAgent,
   getConfiguredChannels,
   extractChannelType,
+  isBareChannel,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -54,6 +55,7 @@ export interface UpdateOptions {
   yes?: boolean;
   noEnv?: boolean;
   dryRun?: boolean;
+  allowChannelShadow?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
@@ -248,6 +250,20 @@ async function _update(
 
   // 5b. Classify net-new add bindings by channel availability
   const { config: currentConfig } = await readConfig();
+
+  // Warn if agents.list is non-empty but has no "main" entry
+  const agentsListForWarn = (
+    (currentConfig.agents as Record<string, unknown>)?.list as Record<string, unknown>[]
+  ) ?? [];
+  if (
+    agentsListForWarn.length > 0 &&
+    !agentsListForWarn.some((a) => String(a.id).trim().toLowerCase() === 'main')
+  ) {
+    console.log(
+      `${icons.warning} ${chalk.yellow('agents.list has no "main" entry — your default agent may be missing. Add { id: "main" } to agents.list to restore.')}`,
+    );
+  }
+
   const configuredChannels = getConfiguredChannels(currentConfig);
 
   const addBindingsWithStatus = plan.bindings
@@ -257,7 +273,8 @@ async function _update(
       const status = configuredChannels === null ? 'unknown' as const
         : configuredChannels.has(channelType) ? 'configured' as const
         : 'unconfigured' as const;
-      return { change: b, channelType, status };
+      const bare = isBareChannel(b.binding.match.channel);
+      return { change: b, channelType, status, isBare: bare };
     });
   const removeBindings = plan.bindings.filter(b => b.type === 'remove');
 
@@ -297,9 +314,12 @@ async function _update(
     console.log('');
     console.log(label('Bindings:'));
     for (const item of addBindingsWithStatus) {
-      const annotation = item.status === 'unconfigured'
-        ? chalk.dim(' (channel not configured — will be skipped)')
-        : '';
+      let annotation = '';
+      if (item.status === 'unconfigured') {
+        annotation = chalk.dim(' (channel not configured — will be skipped)');
+      } else if (item.isBare) {
+        annotation = chalk.dim(' (bare channel — shadows main, will be skipped)');
+      }
       console.log(
         `  ${chalk.green('+')} ${item.change.binding.match.channel} → ${item.change.binding.agentId}${annotation}`,
       );
@@ -345,19 +365,21 @@ async function _update(
     }
   }
 
-  // Check if all net-new adds would be skipped with nothing else to do
-  const allAddsUnconfigured = addBindingsWithStatus.length > 0 &&
-    addBindingsWithStatus.every(b => b.status === 'unconfigured');
+  // Check if all net-new adds would be skipped with nothing else to do (--yes mode only)
+  const allAddsWouldBeSkipped = addBindingsWithStatus.length > 0 &&
+    addBindingsWithStatus.every(b =>
+      b.status === 'unconfigured' || (b.isBare && !options.allowChannelShadow),
+    );
   const hasOtherChanges = plan.agents.some(a => a.type !== 'unchanged') ||
     plan.cron.length > 0 ||
     plan.a2a.length > 0 ||
     plan.versionChange !== null ||
     removeBindings.length > 0;
 
-  if (allAddsUnconfigured && !hasOtherChanges) {
+  if (options.yes && allAddsWouldBeSkipped && !hasOtherChanges) {
     console.log('');
     console.log(
-      `No applicable changes (${addBindingsWithStatus.length} new binding${addBindingsWithStatus.length !== 1 ? 's' : ''} skipped — unconfigured channels).`,
+      `No applicable changes (${addBindingsWithStatus.length} new binding${addBindingsWithStatus.length !== 1 ? 's' : ''} skipped).`,
     );
     return;
   }
@@ -373,12 +395,12 @@ async function _update(
   let finalAddBindings = addBindingsWithStatus.map(b => b.change);
 
   if (options.yes) {
-    // Auto-skip unconfigured adds
+    // Auto-skip unconfigured and bare adds
     finalAddBindings = addBindingsWithStatus
-      .filter(b => b.status !== 'unconfigured')
+      .filter(b => b.status !== 'unconfigured' && (!b.isBare || options.allowChannelShadow))
       .map(b => b.change);
 
-    // Log per-channel-type warnings
+    // Log per-channel-type warnings for unconfigured
     const skippedTypes = [...new Set(
       addBindingsWithStatus
         .filter(b => b.status === 'unconfigured')
@@ -389,23 +411,47 @@ async function _update(
         `${icons.warning} ${chalk.yellow(`Skipping bindings for unconfigured channel: ${ct}`)}`,
       );
     }
+    // Log per-channel-type warnings for bare
+    if (!options.allowChannelShadow) {
+      const bareSkippedTypes = [...new Set(
+        addBindingsWithStatus
+          .filter(b => b.isBare && b.status !== 'unconfigured')
+          .map(b => b.channelType),
+      )].sort();
+      for (const ct of bareSkippedTypes) {
+        console.log(
+          `${icons.warning} ${chalk.yellow(`Skipping bare binding for ${ct} (shadows main agent)`)}`,
+        );
+      }
+    }
   } else {
-    // Interactive path: checkbox for add bindings if unconfigured exist
+    // Interactive path: checkbox for add bindings if unconfigured or bare exist
     const hasUnconfigured = addBindingsWithStatus.some(
       b => b.status === 'unconfigured',
     );
-    if (hasUnconfigured) {
+    const hasBare = addBindingsWithStatus.some(
+      b => b.isBare && b.status !== 'unconfigured',
+    );
+    if (hasUnconfigured || hasBare) {
       const { checkbox } = await import('@inquirer/prompts');
       const choices = addBindingsWithStatus.map(b => ({
-        name: `${b.change.binding.match.channel} → ${b.change.binding.agentId} [${b.status}]`,
+        name: `${b.change.binding.match.channel} → ${b.change.binding.agentId} [${b.status}${b.isBare && b.status !== 'unconfigured' ? ', bare' : ''}]`,
         value: b,
-        checked: b.status !== 'unconfigured',
+        checked: b.status !== 'unconfigured' && !b.isBare,
       }));
       const selected = await checkbox({
-        message: 'Select new bindings to add (unconfigured channels are unchecked):',
+        message: 'Select new bindings to add (unconfigured/bare channels are unchecked):',
         choices,
       });
       finalAddBindings = selected.map(b => b.change);
+
+      // Post-selection no-op guard
+      if (finalAddBindings.length === 0 && !hasOtherChanges) {
+        console.log(
+          `No applicable changes (${addBindingsWithStatus.length} new binding${addBindingsWithStatus.length !== 1 ? 's' : ''} skipped).`,
+        );
+        return;
+      }
     }
 
     console.log('');
@@ -720,13 +766,28 @@ async function _update(
   if (updated > 0) parts.push(`${updated} updated`);
   const bindingChangeCount = finalAddBindings.length + removeBindings.length;
   if (bindingChangeCount > 0 || skippedCount > 0) {
-    const skippedSuffix = skippedCount > 0
-      ? `, ${skippedCount} skipped (unconfigured channels)`
-      : '';
+    // Compute skip-reason breakdown
+    let skippedSuffix = '';
+    const skipParts: string[] = [];
+    if (skippedCount > 0) {
+      const finalAddSet = new Set(finalAddBindings);
+      const unconfiguredSkipped = addBindingsWithStatus.filter(
+        b => b.status === 'unconfigured' && !finalAddSet.has(b.change),
+      ).length;
+      const bareSkipped = addBindingsWithStatus.filter(
+        b => b.isBare && b.status !== 'unconfigured' && !finalAddSet.has(b.change),
+      ).length;
+      const userDeselected = skippedCount - unconfiguredSkipped - bareSkipped;
+
+      if (unconfiguredSkipped > 0) skipParts.push(`${unconfiguredSkipped} unconfigured`);
+      if (bareSkipped > 0) skipParts.push(`${bareSkipped} bare channel shadows`);
+      if (userDeselected > 0) skipParts.push(`${userDeselected} user-deselected`);
+      skippedSuffix = `, ${skippedCount} skipped (${skipParts.join(', ')})`;
+    }
     if (bindingChangeCount > 0) {
       parts.push(`${bindingChangeCount} binding changes${skippedSuffix}`);
     } else if (skippedCount > 0) {
-      parts.push(`${skippedCount} bindings skipped (unconfigured channels)`);
+      parts.push(`${skippedCount} bindings skipped (${skipParts.join(', ')})`);
     }
   }
   if (plan.cron.length > 0) parts.push(`${plan.cron.length} cron changes`);

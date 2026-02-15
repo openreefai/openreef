@@ -25,6 +25,7 @@ import {
   getConfiguredChannels,
   classifyBindings,
   resolveSelectedBindings,
+  isBareChannel,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -53,6 +54,7 @@ export interface InstallOptions {
   yes?: boolean;
   noEnv?: boolean;
   dryRun?: boolean;
+  allowChannelShadow?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
@@ -164,6 +166,19 @@ async function _install(
   const { config, path: configPath } = await readConfig();
   const existingState = await loadState(namespace, manifest.name);
 
+  // Warn if agents.list is non-empty but has no "main" entry
+  const agentsListForWarn = (
+    (config.agents as Record<string, unknown>)?.list as Record<string, unknown>[]
+  ) ?? [];
+  if (
+    agentsListForWarn.length > 0 &&
+    !agentsListForWarn.some((a) => String(a.id).trim().toLowerCase() === 'main')
+  ) {
+    console.log(
+      `${icons.warning} ${chalk.yellow('agents.list has no "main" entry — your default agent may be missing. Add { id: "main" } to agents.list to restore.')}`,
+    );
+  }
+
   // Channel availability for binding selection
   const configuredChannels = getConfiguredChannels(config);
   const classifiedBindingsList = classifyBindings(manifest.bindings ?? [], configuredChannels);
@@ -218,10 +233,14 @@ async function _install(
       const resolvedAgentId = idValidation.ids.get(cb.binding.agent);
       if (resolvedAgentId) {
         const isFreshOrForce = !options.merge;
-        const skipAnnotation =
-          isFreshOrForce && cb.status === 'unconfigured'
-            ? ' (channel not configured — would be skipped)'
-            : '';
+        let skipAnnotation = '';
+        if (isFreshOrForce) {
+          if (cb.status === 'unconfigured') {
+            skipAnnotation = ' (channel not configured — would be skipped)';
+          } else if (cb.isBare) {
+            skipAnnotation = ' (bare channel — shadows main, would be skipped)';
+          }
+        }
         console.log(`  + Binding ${cb.binding.channel} → ${resolvedAgentId}${skipAnnotation}`);
       }
     }
@@ -438,20 +457,33 @@ async function _install(
     console.log('');
     const { confirm, checkbox } = await import('@inquirer/prompts');
 
-    // Interactive binding selection for fresh/force installs with unconfigured bindings
+    // Interactive binding selection for fresh/force installs with unconfigured or bare bindings
     const hasUnconfigured = classifiedBindingsList.some(
       (cb) => cb.status === 'unconfigured',
     );
-    if (hasUnconfigured && !options.merge) {
+    const hasBare = classifiedBindingsList.some(
+      (cb) => cb.isBare && cb.status !== 'unconfigured',
+    );
+    if ((hasUnconfigured || hasBare) && !options.merge) {
       const choices = classifiedBindingsList.map((cb) => ({
-        name: `${cb.binding.channel} → ${namespace}-${cb.binding.agent} [${cb.status}]`,
+        name: `${cb.binding.channel} → ${namespace}-${cb.binding.agent} [${cb.status}${cb.isBare && cb.status !== 'unconfigured' ? ', bare' : ''}]`,
         value: cb.binding,
-        checked: cb.status !== 'unconfigured',
+        checked: cb.status !== 'unconfigured' && !cb.isBare,
       }));
       interactiveSelectedBindings = await checkbox({
-        message: 'Select bindings to wire (unconfigured channels are unchecked):',
+        message: 'Select bindings to wire (unconfigured/bare channels are unchecked):',
         choices,
       });
+
+      // Post-selection no-op guard: if user unchecked everything and no other content
+      if (interactiveSelectedBindings.length === 0) {
+        const hasOtherContent = Object.keys(manifest.agents).length > 0 ||
+          (manifest.cron?.length ?? 0) > 0;
+        if (!hasOtherContent) {
+          console.log('No bindings selected and no other content to deploy.');
+          process.exit(0);
+        }
+      }
     }
 
     const proceed = await confirm({ message: 'Deploy this formation?' });
@@ -489,10 +521,25 @@ async function _install(
           );
         }
       }
-      selectedBindings = resolveSelectedBindings(classifiedBindingsList);
-    } else {
-      selectedBindings = manifest.bindings ?? [];
     }
+    // Log bare-channel skip warnings
+    if (!options.allowChannelShadow) {
+      const bareSkippedTypes = [
+        ...new Set(
+          classifiedBindingsList
+            .filter((cb) => cb.isBare && cb.status !== 'unconfigured')
+            .map((cb) => cb.channelType),
+        ),
+      ].sort();
+      for (const ct of bareSkippedTypes) {
+        console.log(
+          `${icons.warning} ${chalk.yellow(`Skipping bare binding for ${ct} (shadows main agent)`)}`,
+        );
+      }
+    }
+    selectedBindings = resolveSelectedBindings(classifiedBindingsList, {
+      allowChannelShadow: options.allowChannelShadow,
+    });
   }
 
   // ── Phase 6: Deploy ──
@@ -856,13 +903,29 @@ async function _install(
   deploySpinner.succeed('Formation deployed');
   console.log('');
   const totalManifestBindings = (manifest.bindings ?? []).length;
-  const skippedBindings = !options.merge
+  const totalSkipped = !options.merge
     ? totalManifestBindings - selectedBindings.length
     : 0;
-  const skippedSuffix =
-    skippedBindings > 0
-      ? `, ${skippedBindings} skipped (unconfigured channels)`
-      : '';
+
+  // Compute skip-reason breakdown
+  let skippedSuffix = '';
+  if (totalSkipped > 0 && !options.merge) {
+    const unconfiguredSkipped = classifiedBindingsList.filter(
+      (cb) => cb.status === 'unconfigured' &&
+        !selectedBindings.includes(cb.binding),
+    ).length;
+    const bareSkipped = classifiedBindingsList.filter(
+      (cb) => cb.isBare && cb.status !== 'unconfigured' &&
+        !selectedBindings.includes(cb.binding),
+    ).length;
+    const userDeselected = totalSkipped - unconfiguredSkipped - bareSkipped;
+
+    const parts: string[] = [];
+    if (unconfiguredSkipped > 0) parts.push(`${unconfiguredSkipped} unconfigured`);
+    if (bareSkipped > 0) parts.push(`${bareSkipped} bare channel shadows`);
+    if (userDeselected > 0) parts.push(`${userDeselected} user-deselected`);
+    skippedSuffix = `, ${totalSkipped} skipped (${parts.join(', ')})`;
+  }
   console.log(
     `${icons.success} ${chalk.green(`${Object.keys(agentStates).length} agents deployed, ${openClawBindings.length} bindings wired, ${cronJobStates.length} cron jobs scheduled${skippedSuffix}`)}`,
   );

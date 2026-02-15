@@ -81,6 +81,10 @@ describe('reef install', () => {
     );
     const config = JSON.parse(configRaw);
     const agentsList = config.agents.list as Record<string, unknown>[];
+
+    // Main should be seeded as first entry
+    expect(agentsList[0].id).toBe('main');
+
     const triageAgent = agentsList.find((a) => a.id === 'testns-triage');
     expect(triageAgent).toBeDefined();
     expect(triageAgent!.model).toBe('anthropic/claude-sonnet-4-5');
@@ -319,7 +323,7 @@ describe('reef install', () => {
       }),
     );
 
-    // Formation declares both telegram and slack bindings
+    // Formation declares both scoped telegram and unconfigured slack bindings
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -340,7 +344,7 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'telegram', agent: 'triage' },
+          { channel: 'telegram:group-123', agent: 'triage' },
           { channel: 'slack:#support', agent: 'triage' },
         ],
       }),
@@ -348,7 +352,7 @@ describe('reef install', () => {
 
     await install(formationDir, { yes: true });
 
-    // Only telegram binding should be in config
+    // Only scoped telegram binding should be in config (slack is unconfigured)
     const configRaw = await readFile(
       join(tempHome, 'openclaw.json'),
       'utf-8',
@@ -357,10 +361,10 @@ describe('reef install', () => {
     const bindings = config.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'telegram',
+      'telegram:group-123',
     );
 
-    // State should also have only the telegram binding
+    // State should also have only the scoped telegram binding
     const stateFile = join(
       tempHome,
       '.reef',
@@ -369,10 +373,10 @@ describe('reef install', () => {
     const stateRaw = await readFile(stateFile, 'utf-8');
     const state = JSON.parse(stateRaw);
     expect(state.bindings).toHaveLength(1);
-    expect(state.bindings[0].match.channel).toBe('telegram');
+    expect(state.bindings[0].match.channel).toBe('telegram:group-123');
   });
 
-  it('--yes wires all when no channels section (backward compat)', async () => {
+  it('--yes wires all scoped bindings when no channels section (backward compat)', async () => {
     // Minimal config WITHOUT channels section
     await writeFile(
       join(tempHome, 'openclaw.json'),
@@ -382,7 +386,7 @@ describe('reef install', () => {
       }),
     );
 
-    // Formation with discord and slack bindings
+    // Formation with scoped discord and slack bindings
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -404,14 +408,14 @@ describe('reef install', () => {
         },
         bindings: [
           { channel: 'discord:general', agent: 'triage' },
-          { channel: 'slack', agent: 'triage' },
+          { channel: 'slack:#support', agent: 'triage' },
         ],
       }),
     );
 
     await install(formationDir, { yes: true });
 
-    // Both bindings should be wired
+    // Both scoped bindings should be wired
     const configRaw = await readFile(
       join(tempHome, 'openclaw.json'),
       'utf-8',
@@ -424,11 +428,11 @@ describe('reef install', () => {
       (b) => (b.match as Record<string, unknown>).channel,
     );
     expect(channels).toContain('discord:general');
-    expect(channels).toContain('slack');
+    expect(channels).toContain('slack:#support');
   });
 
   it('--merge ignores channel availability', async () => {
-    // First install with both bindings (no channels section, all wired)
+    // First install with scoped bindings (no channels section, all wired)
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -449,8 +453,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'slack', agent: 'triage' },
-          { channel: 'telegram', agent: 'triage' },
+          { channel: 'slack:#support', agent: 'triage' },
+          { channel: 'telegram:group-123', agent: 'triage' },
         ],
       }),
     );
@@ -487,8 +491,8 @@ describe('reef install', () => {
     const channels = bindings.map(
       (b) => (b.match as Record<string, unknown>).channel,
     );
-    expect(channels).toContain('slack');
-    expect(channels).toContain('telegram');
+    expect(channels).toContain('slack:#support');
+    expect(channels).toContain('telegram:group-123');
 
     // State should also have both
     const stateFile = join(
@@ -499,6 +503,174 @@ describe('reef install', () => {
     const stateRaw = await readFile(stateFile, 'utf-8');
     const state = JSON.parse(stateRaw);
     expect(state.bindings).toHaveLength(2);
+  });
+
+  it('install preserves main in agents.list', async () => {
+    await install(formationDir, { yes: true });
+
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const agentsList = config.agents.list as Record<string, unknown>[];
+    expect(agentsList[0].id).toBe('main');
+    expect(agentsList.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('--yes skips bare channel bindings by default', async () => {
+    // Config with telegram configured
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify({
+        agents: { list: [] },
+        bindings: [],
+        channels: {
+          telegram: { enabled: true, botToken: '123:ABC' },
+        },
+      }),
+    );
+
+    // Formation with bare telegram and scoped slack bindings
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with bare binding',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram', agent: 'triage' },
+          { channel: 'telegram:group-123', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Only the scoped telegram binding should be wired, bare one skipped
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0].match as Record<string, unknown>).channel).toBe(
+      'telegram:group-123',
+    );
+  });
+
+  it('--yes --allow-channel-shadow wires bare channel bindings', async () => {
+    // Config with telegram configured
+    await writeFile(
+      join(tempHome, 'openclaw.json'),
+      JSON.stringify({
+        agents: { list: [] },
+        bindings: [],
+        channels: {
+          telegram: { enabled: true, botToken: '123:ABC' },
+        },
+      }),
+    );
+
+    // Formation with bare telegram binding
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with bare binding',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram', agent: 'triage' },
+          { channel: 'telegram:group-123', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true, allowChannelShadow: true });
+
+    // Both bindings should be wired
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(2);
+
+    const channels = bindings.map(
+      (b) => (b.match as Record<string, unknown>).channel,
+    );
+    expect(channels).toContain('telegram');
+    expect(channels).toContain('telegram:group-123');
+  });
+
+  it('--merge does not filter bare channel bindings', async () => {
+    // First install
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: 'telegram', agent: 'triage' },
+        ],
+      }),
+    );
+
+    await install(formationDir, { yes: true, allowChannelShadow: true });
+
+    // Now merge — should wire bare binding
+    await install(formationDir, { yes: true, merge: true });
+
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0].match as Record<string, unknown>).channel).toBe('telegram');
   });
 
   it('--merge skips unchanged files and updates state', async () => {
