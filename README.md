@@ -49,12 +49,20 @@ my-formation/
 
 ## Quick Start
 
+### Install the CLI
+
+```bash
+npm install -g @openreef/cli
+```
+
 ### Create a Formation
 
 ```bash
 reef init my-formation
 cd my-formation
-# Edit reef.json, write your SOUL.md files, done
+# Edit reef.json, write your SOUL.md files
+reef validate .            # Check everything is wired correctly
+reef pack .                # Package for distribution
 ```
 
 ### Deploy a Formation

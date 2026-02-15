@@ -1,0 +1,53 @@
+{
+  "name": "@openreef/cli",
+  "version": "0.1.0",
+  "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
+  "type": "module",
+  "bin": {
+    "reef": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "template"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "smoke": "npm run build && reef validate ./template && reef init smoke-test --yes && reef validate ./smoke-test && reef pack ./smoke-test"
+  },
+  "dependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "@inquirer/prompts": "^8.2.1",
+    "ora": "^9.3.0",
+    "tar": "^7.5.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "json-schema-to-ts": "^3.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "keywords": [
+    "openreef",
+    "openclaw",
+    "ai-agents",
+    "formations",
+    "multi-agent",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openreefai/openreef.git"
+  }
+}
