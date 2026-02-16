@@ -330,4 +330,103 @@ describe('computeMigrationPlan', () => {
     const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes);
     expect(plan.a2a.find((e) => e.to === 'researcher')?.type).toBe('add');
   });
+
+  // ── Binding variable interpolation ──
+
+  it('resolved binding matches state — no binding delta', () => {
+    const state = makeState({
+      bindings: [
+        { agentId: 'testns-triage', match: { channel: 'slack:#ops' } },
+      ],
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+        },
+      },
+      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+    const resolvedVars = { INTERACTION_CHANNEL: 'slack:#ops' };
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes, resolvedVars);
+    expect(plan.bindings).toHaveLength(0);
+    expect(plan.isEmpty).toBe(true);
+  });
+
+  it('resolved binding differs from state — remove + add', () => {
+    const state = makeState({
+      bindings: [
+        { agentId: 'testns-triage', match: { channel: 'slack:#ops' } },
+      ],
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+        },
+      },
+      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+    const resolvedVars = { INTERACTION_CHANNEL: 'telegram:12345' };
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes, resolvedVars);
+    expect(plan.bindings).toHaveLength(2);
+    expect(plan.bindings.find((b) => b.type === 'remove')).toBeDefined();
+    expect(plan.bindings.find((b) => b.type === 'add')).toBeDefined();
+    expect(plan.bindings.find((b) => b.type === 'add')!.binding.match.channel).toBe('telegram:12345');
+  });
+
+  it('unresolved binding is dropped — produces remove for state binding', () => {
+    const state = makeState({
+      bindings: [
+        { agentId: 'testns-triage', match: { channel: 'slack:#ops' } },
+      ],
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+        },
+      },
+      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+    // No INTERACTION_CHANNEL in resolvedVars — unresolved
+    const resolvedVars = {};
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes, resolvedVars);
+    // Unresolved binding is dropped, so state binding should be removed
+    expect(plan.bindings).toHaveLength(1);
+    expect(plan.bindings[0].type).toBe('remove');
+    expect(plan.bindings[0].binding.match.channel).toBe('slack:#ops');
+    // No add of literal {{INTERACTION_CHANNEL}}
+    expect(plan.bindings.find((b) => b.type === 'add')).toBeUndefined();
+  });
 });

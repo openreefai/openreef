@@ -25,6 +25,11 @@ export interface Variable {
 }
 
 export interface Binding {
+  /**
+   * Channel identifier in `<type>:<scope>` form (e.g., `slack:#ops`, `telegram:12345`).
+   * Functional channels (intrinsic to the formation) use literals.
+   * Interaction channels (user preference) use `{{VARIABLE}}` references resolved at install time.
+   */
   channel: string;
   agent: string;
 }

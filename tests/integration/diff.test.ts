@@ -215,4 +215,41 @@ describe('reef diff', () => {
       computeFormationDiff(formationDir, {}),
     ).rejects.toThrow(DiffValidationError);
   });
+
+  it('no binding diff when variable resolves to same value as state', async () => {
+    // State has a literal resolved binding
+    const state = makeState({
+      bindings: [
+        { agentId: 'testns-helper', match: { channel: 'slack:#ops' } },
+      ],
+    });
+    await writeState(state);
+
+    // Manifest uses a variable token for the binding channel
+    const manifestWithVarBinding = {
+      ...baseManifest,
+      variables: {
+        INTERACTION_CHANNEL: { type: 'string' as const },
+      },
+      bindings: [
+        { channel: '{{INTERACTION_CHANNEL}}', agent: 'helper' },
+      ],
+    };
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify(manifestWithVarBinding, null, 2),
+    );
+
+    // Provide the variable via .env so it resolves to the same value as state
+    await writeFile(
+      join(formationDir, '.env'),
+      'INTERACTION_CHANNEL="slack:#ops"',
+    );
+
+    const result = await computeFormationDiff(formationDir, {});
+
+    // No binding diff — resolved value matches state
+    expect(result.plan.bindings).toHaveLength(0);
+    expect(result.plan.isEmpty).toBe(true);
+  });
 });

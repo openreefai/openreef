@@ -140,4 +140,33 @@ describe('structural-validator', () => {
       expect.objectContaining({ code: 'UNDECLARED_VARIABLE' }),
     );
   });
+
+  it('warns when binding channel references undeclared variable', async () => {
+    await createAgentDir(tempDir, 'alpha');
+    await createAgentDir(tempDir, 'beta');
+
+    const manifest = baseManifest({
+      bindings: [{ channel: '{{UNDECLARED_VAR}}', agent: 'alpha' }],
+      variables: {},
+    });
+    const result = await validateStructure(manifest, tempDir);
+    expect(result.valid).toBe(true); // warnings don't affect validity
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'UNDECLARED_BINDING_VARIABLE' }),
+    );
+  });
+
+  it('no warning when binding channel references declared variable', async () => {
+    await createAgentDir(tempDir, 'alpha');
+    await createAgentDir(tempDir, 'beta');
+
+    const manifest = baseManifest({
+      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'alpha' }],
+      variables: {
+        INTERACTION_CHANNEL: { type: 'string', description: 'Channel for interactions' },
+      },
+    });
+    const result = await validateStructure(manifest, tempDir);
+    expect(result.issues.filter((i) => i.code === 'UNDECLARED_BINDING_VARIABLE')).toHaveLength(0);
+  });
 });

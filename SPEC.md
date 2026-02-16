@@ -258,6 +258,48 @@ Channel routing rules for connecting agents to external channels (e.g., Slack, e
 | `channel` | `string` | Yes | Channel identifier |
 | `agent` | `string` | Yes | Agent slug to bind |
 
+#### Functional vs. Interaction Channels
+
+Bindings fall into two categories:
+
+- **Functional channels** are intrinsic to the formation's design — part of what the formation *does*. Example: a monitor agent that polls `reddit:r/openreef`. Hardcode these.
+
+- **Interaction channels** are how the *user* communicates with the formation's coordinator. These are user preferences, not formation decisions. Use `{{VARIABLE}}` references for these.
+
+#### Channel Format
+
+Channels use `<type>:<scope>` form:
+
+| Example | Type | Scope |
+|---------|------|-------|
+| `slack:#ops` | slack | #ops channel |
+| `telegram:12345` | telegram | chat ID |
+| `discord:general` | discord | channel name |
+| `teams:ops-room` | teams | channel name |
+
+Bare channels (no scope, e.g., `slack`) shadow the main agent and receive ALL messages on that channel. The installer unchecks bare bindings by default in the binding selection checkbox and logs a skip warning.
+
+#### Convention
+
+Declare a variable for interaction channels. The user sets the value at install time:
+
+```json
+{
+  "variables": {
+    "INTERACTION_CHANNEL": {
+      "type": "string",
+      "required": true,
+      "description": "Primary contact channel in <type>:<scope> form (examples: slack:#ops, telegram:12345, teams:ops-room)"
+    }
+  },
+  "bindings": [
+    { "channel": "{{INTERACTION_CHANNEL}}", "agent": "coordinator" }
+  ]
+}
+```
+
+For additional channels beyond what the manifest declares, handle them in a bootstrap or reconfigure flow inside the coordinator agent (stored in `knowledge/dynamic`), not as hardcoded manifest bindings.
+
 ### Cron
 
 Scheduled jobs that trigger agent actions on a schedule:
@@ -378,7 +420,7 @@ The lockfile pins exact versions of skill dependencies for reproducible, supply-
 
 ## Variable Interpolation
 
-All text files in a formation (`*.md`, `.env.example`, etc.) support `{{VARIABLE_NAME}}` substitution.
+All text files in a formation (`*.md`, `.env.example`, etc.) and binding channel values in `reef.json` support `{{VARIABLE_NAME}}` substitution.
 
 ### Rules
 
@@ -481,7 +523,10 @@ Check for existing agents, bindings, and cron jobs that would conflict with the 
 - Compute `{{tools}}` for each agent from `agent.tools.allow` + `dependencies.skills`
 - Generate `AGENTS.md` from the manifest topology and inject into each workspace
 - Wire `agentToAgent` bindings idempotently (only create if missing)
-- Create channel bindings
+- Resolve `{{VARIABLE}}` tokens in binding channel values using resolved variables
+- Present binding checkbox (existing UX): bare bindings unchecked by default, unconfigured bindings unchecked
+- Create channel bindings (skip bindings whose resolved channel is empty or deselected)
+- Log skip warnings for bare bindings unless `--allow-channel-shadow`
 - Create cron jobs
 
 ### Phase 7: Validate

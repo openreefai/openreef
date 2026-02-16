@@ -635,6 +635,117 @@ describe('reef install', () => {
     expect(channels).toContain('telegram:group-123');
   });
 
+  it('install resolves {{VARIABLE}} in binding channels', async () => {
+    // Write manifest with variable-templated binding and declared variable
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with binding variable',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+          INTERACTION_CHANNEL: { type: 'string' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' },
+        ],
+      }),
+    );
+
+    // Provide variable via .env file
+    await writeFile(
+      join(formationDir, '.env'),
+      'INTERACTION_CHANNEL="slack:#ops"',
+    );
+
+    await install(formationDir, { yes: true });
+
+    // Verify the binding was wired with the resolved value, not the token
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0].match as Record<string, unknown>).channel).toBe(
+      'slack:#ops',
+    );
+
+    // State should also have the resolved binding
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'testns--test-formation.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.bindings).toHaveLength(1);
+    expect(state.bindings[0].match.channel).toBe('slack:#ops');
+  });
+
+  it('install drops binding with unresolved {{VARIABLE}}', async () => {
+    // Write manifest with variable-templated binding but do NOT provide the variable
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation with unresolved binding variable',
+        namespace: 'testns',
+        variables: {
+          MISSION: { type: 'string', default: 'support' },
+          INTERACTION_CHANNEL: { type: 'string' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [
+          { channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' },
+        ],
+      }),
+    );
+
+    // No .env file, no --set, no env var for INTERACTION_CHANNEL
+    await install(formationDir, { yes: true });
+
+    // Verify the binding was dropped (not wired with literal token)
+    const configRaw = await readFile(
+      join(tempHome, 'openclaw.json'),
+      'utf-8',
+    );
+    const config = JSON.parse(configRaw);
+    const bindings = config.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(0);
+
+    // State should have no bindings either
+    const stateFile = join(
+      tempHome,
+      '.reef',
+      'testns--test-formation.state.json',
+    );
+    const stateRaw = await readFile(stateFile, 'utf-8');
+    const state = JSON.parse(stateRaw);
+    expect(state.bindings).toHaveLength(0);
+  });
+
   it('--merge does not filter bare channel bindings', async () => {
     // First install
     await writeFile(

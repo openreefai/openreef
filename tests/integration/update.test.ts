@@ -454,6 +454,191 @@ describe('reef update', () => {
     expect(state?.bindings).toHaveLength(2);
   });
 
+  it('update detects no binding change when variable resolves to same value', async () => {
+    // Install formation with a resolved binding via .env
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          INTERACTION_CHANNEL: { type: 'string' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      }),
+    );
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await install(formationDir, { yes: true });
+
+    // Verify initial binding was wired
+    let state = await loadState('testns', 'test-formation');
+    expect(state?.bindings).toHaveLength(1);
+    expect(state?.bindings[0].match.channel).toBe('slack:#ops');
+
+    // Update with same variable value — should be no-op for bindings
+    await update(formationDir, { yes: true });
+
+    const { config: updatedConfig } = await readConfig(join(tempHome, 'openclaw.json'));
+    const bindings = updatedConfig.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0] as Record<string, unknown>).match).toEqual({
+      channel: 'slack:#ops',
+    });
+  });
+
+  it('update detects binding change when variable resolves to different value', async () => {
+    // Install formation with a resolved binding via .env
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          INTERACTION_CHANNEL: { type: 'string' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      }),
+    );
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await install(formationDir, { yes: true });
+
+    // Now change the variable value
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=telegram:12345');
+
+    // Bump version so update is not just a version-only change
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.1.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          INTERACTION_CHANNEL: { type: 'string' },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      }),
+    );
+
+    await update(formationDir, { yes: true });
+
+    // Binding should now be telegram:12345
+    const { config: updatedConfig } = await readConfig(join(tempHome, 'openclaw.json'));
+    const bindings = updatedConfig.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(1);
+    expect((bindings[0] as Record<string, unknown>).match).toEqual({
+      channel: 'telegram:12345',
+    });
+
+    // State should reflect the new binding
+    const state = await loadState('testns', 'test-formation');
+    expect(state?.bindings).toHaveLength(1);
+    expect(state?.bindings[0].match.channel).toBe('telegram:12345');
+  });
+
+  it('update treats unresolved binding variable as absent (removes stale binding)', async () => {
+    // Install formation with a resolved binding via .env
+    // Use sensitive: true so state stores "$INTERACTION_CHANNEL" (env ref),
+    // not the literal value — this ensures the state fallback doesn't restore it.
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.0.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          INTERACTION_CHANNEL: { type: 'string', sensitive: true },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      }),
+    );
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await install(formationDir, { yes: true });
+
+    // Verify initial binding was wired
+    let state = await loadState('testns', 'test-formation');
+    expect(state?.bindings).toHaveLength(1);
+    expect(state?.bindings[0].match.channel).toBe('slack:#ops');
+
+    // Remove the .env file so variable is unresolved, bump version
+    await rm(join(formationDir, '.env'));
+    await writeFile(
+      join(formationDir, 'reef.json'),
+      JSON.stringify({
+        reef: '1.0',
+        type: 'solo',
+        name: 'test-formation',
+        version: '1.1.0',
+        description: 'Test formation',
+        namespace: 'testns',
+        variables: {
+          INTERACTION_CHANNEL: { type: 'string', sensitive: true },
+        },
+        agents: {
+          triage: {
+            source: 'agents/triage',
+            description: 'Handles triage',
+            model: 'anthropic/claude-sonnet-4-5',
+          },
+        },
+        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      }),
+    );
+
+    // Use --no-env to prevent any env file from being loaded
+    await update(formationDir, { yes: true, noEnv: true });
+
+    // Binding should be removed (not replaced with literal {{INTERACTION_CHANNEL}})
+    const { config: updatedConfig } = await readConfig(join(tempHome, 'openclaw.json'));
+    const bindings = updatedConfig.bindings as Record<string, unknown>[];
+    expect(bindings).toHaveLength(0);
+
+    // State should have no bindings
+    state = await loadState('testns', 'test-formation');
+    expect(state?.bindings).toHaveLength(0);
+  });
+
   it('update is idempotent for templates with {{tools}}', async () => {
     // SOUL.md with tools token
     await writeFile(
