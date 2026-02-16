@@ -172,6 +172,7 @@ export async function computeFormationDiff(
     namespace,
     idValidation.ids,
     newFileHashes,
+    resolvedVars,
   );
 
   return {

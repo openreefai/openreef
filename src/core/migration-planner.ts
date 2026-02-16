@@ -1,4 +1,5 @@
 import { bindingsEqual } from './config-patcher.js';
+import { interpolate } from './template-interpolator.js';
 import type { FormationState, OpenClawBinding, CronJobState } from '../types/state.js';
 import type { ReefManifest, CronJob as ManifestCron } from '../types/manifest.js';
 
@@ -43,6 +44,7 @@ export function computeMigrationPlan(
   namespace: string,
   idMap: Map<string, string>,
   newFileHashes: Record<string, string>,
+  resolvedVars: Record<string, string> = {},
 ): MigrationPlan {
   const agents: AgentChange[] = [];
   const bindings: BindingChange[] = [];
@@ -92,9 +94,14 @@ export function computeMigrationPlan(
     }
   }
 
-  // Binding changes
+  // Binding changes — interpolate {{VARIABLE}} tokens in channels
+  const TOKEN_RE_CHECK = /\{\{\w+\}\}/;
+  const resolvedBindings = (manifest.bindings ?? [])
+    .map((b) => ({ ...b, channel: interpolate(b.channel, resolvedVars) }))
+    .filter((b) => b.channel.trim() !== '' && !TOKEN_RE_CHECK.test(b.channel));
+
   const newBindings: OpenClawBinding[] = [];
-  for (const binding of manifest.bindings ?? []) {
+  for (const binding of resolvedBindings) {
     const resolvedAgentId = idMap.get(binding.agent);
     if (!resolvedAgentId) continue;
     newBindings.push({

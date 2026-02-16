@@ -76,6 +76,29 @@ export async function validateStructure(
     }
   }
 
+  // Warning: binding channel references undeclared variable
+  if (manifest.bindings) {
+    const TOKEN_PATTERN = /\{\{(\w+)\}\}/g;
+    const bindingDeclaredVars = new Set(Object.keys(manifest.variables ?? {}));
+    const bindingBuiltinVars = new Set(['namespace']);
+
+    for (const [i, binding] of manifest.bindings.entries()) {
+      let match: RegExpExecArray | null;
+      TOKEN_PATTERN.lastIndex = 0;
+      while ((match = TOKEN_PATTERN.exec(binding.channel)) !== null) {
+        const varName = match[1];
+        if (!bindingDeclaredVars.has(varName) && !bindingBuiltinVars.has(varName)) {
+          issues.push({
+            severity: 'warning',
+            code: 'UNDECLARED_BINDING_VARIABLE',
+            message: `Binding channel "${binding.channel}" references undeclared variable "{{${varName}}}"`,
+            path: `bindings[${i}].channel`,
+          });
+        }
+      }
+    }
+  }
+
   // Check cron agent references
   if (manifest.cron) {
     for (const job of manifest.cron) {

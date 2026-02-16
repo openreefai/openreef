@@ -173,6 +173,22 @@ async function _install(
   // Inject built-in variable: namespace
   resolvedVars.namespace = namespace;
 
+  // Resolve {{VARIABLE}} tokens in binding channel values;
+  // drop bindings that still contain unresolved {{...}} tokens (unset optional vars)
+  const TOKEN_RE_CHECK = /\{\{\w+\}\}/;
+  const resolvedBindings: Binding[] = (manifest.bindings ?? [])
+    .map((b) => ({ ...b, channel: interpolate(b.channel, resolvedVars) }))
+    .filter((b) => {
+      if (b.channel.trim() === '') return false;
+      if (TOKEN_RE_CHECK.test(b.channel)) {
+        console.log(
+          `${icons.warning} ${chalk.yellow(`Skipping binding "${b.channel}" → ${b.agent}: unresolved variable`)}`,
+        );
+        return false;
+      }
+      return true;
+    });
+
   // ── Phase 3: Conflicts ──
   const { config, path: configPath } = await readConfig();
   const existingState = await loadState(namespace, manifest.name);
@@ -192,7 +208,7 @@ async function _install(
 
   // Channel availability for binding selection
   const configuredChannels = getConfiguredChannels(config);
-  const classifiedBindingsList = classifyBindings(manifest.bindings ?? [], configuredChannels);
+  const classifiedBindingsList = classifyBindings(resolvedBindings, configuredChannels);
 
   // DRY-RUN: report conflicts and planned changes, then exit cleanly
   if (options.dryRun) {
@@ -526,8 +542,8 @@ async function _install(
   // Compute selectedBindings based on mode and user choices
   let selectedBindings: Binding[];
   if (options.merge) {
-    // --merge wires all manifest bindings, no channel filtering
-    selectedBindings = manifest.bindings ?? [];
+    // --merge wires all resolved bindings, no channel filtering
+    selectedBindings = resolvedBindings;
   } else if (!options.yes) {
     // Interactive path: use checkbox result if it was shown, otherwise default
     selectedBindings =
@@ -940,7 +956,7 @@ async function _install(
 
   deploySpinner.succeed('Formation deployed');
   console.log('');
-  const totalManifestBindings = (manifest.bindings ?? []).length;
+  const totalManifestBindings = resolvedBindings.length;
   const totalSkipped = !options.merge
     ? totalManifestBindings - selectedBindings.length
     : 0;
