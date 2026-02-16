@@ -12,6 +12,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extract } from 'tar';
 import { resolveReefStateDir } from './openclaw-paths.js';
+import { downloadArtifact, ArtifactDownloadError, ArtifactIntegrityError } from '../utils/download.js';
 import { VERSION } from '../version.js';
 
 // ── Types ──
@@ -306,67 +307,31 @@ export async function downloadFormationTarball(
   const registryUrl = resolveRegistryUrl(options);
   const cacheDir = registryCacheDir(registryUrl, options?.env);
   const hasHash = !!entry.sha256;
-  const cachePath = tarballCachePath(cacheDir, name, version, hasHash);
+  const disambig = hashString(`${name}:${version}`).slice(0, 8);
+  const safeName = sanitizeFilenameComponent(name);
+  const safeVersion = sanitizeFilenameComponent(version);
+  const cacheName = `${safeName}-${safeVersion}-${disambig}.reef.tar.gz`;
 
-  // Verified tarballs: reuse from cache after re-checking hash
-  if (hasHash && existsSync(cachePath)) {
-    const cached = await readFile(cachePath);
-    const cachedHash = createHash('sha256').update(cached).digest('hex');
-    if (cachedHash === entry.sha256) {
-      return cachePath;
-    }
-    // Cached file is corrupted or collided — delete and re-download
-    await unlink(cachePath).catch(() => {});
-  }
-
-  // Unverified tarballs: always re-download (never trust cache)
-  // They are written to unverified/ as a download optimization within a single session
-  // but are never reused across invocations
-
-  if (!hasHash) {
-    console.warn(
-      `WARNING: No integrity hash for ${name}@${version} — artifact is UNVERIFIED`,
-    );
-  }
-
-  validateUrlScheme(entry.url, 'tarball download');
-
-  let response: Response;
   try {
-    response = await fetch(entry.url, {
-      headers: { 'User-Agent': `@openreef/cli/${VERSION}` },
+    return await downloadArtifact({
+      url: entry.url,
+      sha256: entry.sha256,
+      cacheDir: join(cacheDir, hasHash ? 'tarballs' : 'unverified'),
+      cacheName,
+      userAgent: `@openreef/cli/${VERSION}`,
     });
   } catch (err) {
-    throw new RegistryDownloadError(
-      `Failed to download ${name}@${version}: ${err instanceof Error ? err.message : String(err)}`,
-      err,
-    );
-  }
-
-  if (!response.ok) {
-    throw new RegistryDownloadError(
-      `Download of ${name}@${version} returned HTTP ${response.status}: ${response.statusText}`,
-    );
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-
-  // Verify SHA-256 if present
-  if (entry.sha256) {
-    const actual = createHash('sha256').update(buffer).digest('hex');
-    if (actual !== entry.sha256) {
-      throw new RegistryIntegrityError(name, version, entry.sha256, actual);
+    if (err instanceof ArtifactIntegrityError) {
+      throw new RegistryIntegrityError(name, version, err.expected, err.actual);
     }
+    if (err instanceof ArtifactDownloadError) {
+      throw new RegistryDownloadError(
+        `Failed to download ${name}@${version}: ${err.message}`,
+        err.cause,
+      );
+    }
+    throw err;
   }
-
-  // Write to cache
-  const parentDir = hasHash
-    ? join(cacheDir, 'tarballs')
-    : join(cacheDir, 'unverified');
-  await mkdir(parentDir, { recursive: true });
-  await writeFile(cachePath, buffer);
-
-  return cachePath;
 }
 
 export async function resolveFromRegistry(

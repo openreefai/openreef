@@ -1,10 +1,10 @@
 {
   "name": "@openreef/cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
   "type": "module",
   "bin": {
-    "reef": "./dist/index.js"
+    "reef": "dist/index.js"
   },
   "files": [
     "dist",
@@ -51,6 +51,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openreefai/openreef.git"
+    "url": "git+https://github.com/openreefai/openreef.git"
   }
 }

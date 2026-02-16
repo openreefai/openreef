@@ -143,12 +143,14 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 | `reef install <source>` | Deploy a formation (local path, tarball, or registry name) |
 | `reef uninstall <identifier>` | Remove a formation and all its resources |
 | `reef update <source>` | Update a deployed formation (preserves agent-written data) |
+| `reef diff <source>` | Compare local formation source against deployed state |
 | `reef repair <identifier>` | Detect and fix discrepancies in a deployed formation |
 | `reef export <identifier>` | Export a deployed formation's source to a local directory |
 | `reef logs <identifier>` | View session logs for a formation's agents |
 | `reef list` | List installed formations |
 | `reef status <identifier>` | Show status of a deployed formation |
-| `reef lock <identifier>` | Pin formation versions via ClawHub (not yet available) |
+| `reef lock [path]` | Resolve and pin skill dependency versions to `reef.lock.json` |
+| `reef publish [path]` | Publish a formation to the GitHub-based registry |
 
 ## Formation Registry
 
@@ -174,6 +176,18 @@ reef install daily-ops --skip-cache
 ```
 
 **Resolution precedence:** local path > tarball > registry name. If `daily-ops` is a local directory or `.tar.gz` file, it will be used directly.
+
+## Publishing
+
+Publish formations to the GitHub-based registry:
+
+```bash
+reef publish .                         # uses REEF_GITHUB_TOKEN or GITHUB_TOKEN
+reef publish . --token ghp_xxx         # explicit token
+reef publish . --yes                   # skip confirmation
+```
+
+Set `REEF_GITHUB_TOKEN` (or `GITHUB_TOKEN`) for authentication. The publish flow uses an atomic draft-release workflow to prevent partial updates.
 
 ## Security
 

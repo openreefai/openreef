@@ -1,0 +1,186 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { loadManifest } from './manifest-loader.js';
+import { validateSchema } from './schema-validator.js';
+import { validateStructure } from './structural-validator.js';
+import { resolveVariables } from './variable-resolver.js';
+import { interpolate, buildToolsList } from './template-interpolator.js';
+import { validateAgentIds } from './openclaw-paths.js';
+import { loadState, listStates, computeFileHash } from './state-manager.js';
+import { generateAgentsMd } from './agents-md-generator.js';
+import { listFiles } from '../utils/fs.js';
+import { computeMigrationPlan } from './migration-planner.js';
+import { icons } from '../utils/output.js';
+import chalk from 'chalk';
+import type { ReefManifest } from '../types/manifest.js';
+import type { FormationState } from '../types/state.js';
+import type { MigrationPlan } from './migration-planner.js';
+
+const TOKEN_RE = /\{\{\w+\}\}/;
+
+function isBinaryBuffer(buf: Buffer): boolean {
+  const check = buf.subarray(0, 8192);
+  return check.includes(0);
+}
+
+function parseSets(sets?: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!sets) return result;
+  for (const s of sets) {
+    const eq = s.indexOf('=');
+    if (eq === -1) continue;
+    result[s.slice(0, eq)] = s.slice(eq + 1);
+  }
+  return result;
+}
+
+export interface DiffResult {
+  plan: MigrationPlan;
+  manifest: ReefManifest;
+  state: FormationState;
+  namespace: string;
+  idMap: Map<string, string>;
+  newFileHashes: Record<string, string>;
+  resolvedVars: Record<string, string>;
+}
+
+export class DiffValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DiffValidationError';
+  }
+}
+
+export async function computeFormationDiff(
+  formationPath: string,
+  options: { namespace?: string; set?: string[]; noEnv?: boolean },
+): Promise<DiffResult> {
+  // 1. Parse + validate manifest
+  const manifest = await loadManifest(formationPath);
+
+  const schemaResult = await validateSchema(manifest);
+  if (!schemaResult.valid) {
+    const msgs = schemaResult.issues.map((i) => i.message).join('; ');
+    throw new DiffValidationError(`Schema validation failed: ${msgs}`);
+  }
+
+  const structResult = await validateStructure(manifest, formationPath);
+  if (!structResult.valid) {
+    const msgs = structResult.issues
+      .filter((i) => i.severity === 'error')
+      .map((i) => i.message)
+      .join('; ');
+    throw new DiffValidationError(`Structural validation failed: ${msgs}`);
+  }
+
+  const namespace = options.namespace ?? manifest.namespace;
+  const slugs = Object.keys(manifest.agents);
+  const idValidation = validateAgentIds(slugs, namespace);
+  if (!idValidation.valid) {
+    throw new DiffValidationError(
+      `Agent ID validation failed: ${idValidation.errors.join('; ')}`,
+    );
+  }
+
+  // 2. Load existing state
+  const existingState = await loadState(namespace, manifest.name);
+  if (!existingState) {
+    const allStates = await listStates();
+    const byName = allStates.filter((s) => s.name === manifest.name);
+    if (byName.length === 1 && byName[0].namespace !== namespace) {
+      throw new DiffValidationError(
+        `Formation installed under namespace "${byName[0].namespace}" but resolved namespace is "${namespace}". Use --namespace ${byName[0].namespace} to diff.`,
+      );
+    }
+    throw new DiffValidationError(
+      `Formation "${namespace}/${manifest.name}" is not installed. Use reef install instead.`,
+    );
+  }
+
+  // 3. Resolve variables
+  const { resolved: resolvedVars, missing } = await resolveVariables(
+    manifest.variables ?? {},
+    formationPath,
+    {
+      interactive: false,
+      cliOverrides: parseSets(options.set),
+      noEnv: options.noEnv,
+    },
+  );
+
+  // State fallback for non-sensitive values
+  for (const name of Object.keys(manifest.variables ?? {})) {
+    if (resolvedVars[name] !== undefined) continue;
+    const stateVal = existingState.variables[name];
+    if (stateVal !== undefined && !stateVal.startsWith('$')) {
+      resolvedVars[name] = stateVal;
+    }
+  }
+
+  const stillMissing = missing.filter((name) => resolvedVars[name] === undefined);
+  if (stillMissing.length > 0) {
+    throw new DiffValidationError(
+      `Missing required variables: ${stillMissing.join(', ')}. Use --set KEY=VALUE or set them in .env / environment.`,
+    );
+  }
+
+  resolvedVars.namespace = namespace;
+
+  // 4. Compute file hashes for new source
+  const newFileHashes: Record<string, string> = {};
+  for (const [slug, agentDef] of Object.entries(manifest.agents)) {
+    const agentId = idValidation.ids.get(slug)!;
+    const sourceDir = join(formationPath, agentDef.source);
+    try {
+      const files = await listFiles(sourceDir);
+      for (const relativePath of files) {
+        const srcFile = join(sourceDir, relativePath);
+        const rawBytes = await readFile(srcFile);
+        let content: Buffer;
+        if (isBinaryBuffer(rawBytes)) {
+          content = rawBytes;
+        } else {
+          const text = rawBytes.toString('utf-8');
+          if (TOKEN_RE.test(text)) {
+            const agentVars = {
+              ...resolvedVars,
+              tools: buildToolsList(agentDef.tools?.allow, manifest.dependencies?.skills),
+            };
+            content = Buffer.from(interpolate(text, agentVars), 'utf-8');
+          } else {
+            content = Buffer.from(text, 'utf-8');
+          }
+        }
+        newFileHashes[`${agentId}:${relativePath}`] = computeFileHash(content);
+      }
+    } catch {
+      // Source dir may not exist for this agent yet
+    }
+
+    // AGENTS.md hash if agent-to-agent configured
+    if (manifest.agentToAgent?.[slug]?.length) {
+      const agentsMd = generateAgentsMd(manifest, slug, namespace);
+      const buf = Buffer.from(agentsMd, 'utf-8');
+      newFileHashes[`${agentId}:AGENTS.md`] = computeFileHash(buf);
+    }
+  }
+
+  // 5. Compute migration plan
+  const plan = computeMigrationPlan(
+    existingState,
+    manifest,
+    namespace,
+    idValidation.ids,
+    newFileHashes,
+  );
+
+  return {
+    plan,
+    manifest,
+    state: existingState,
+    namespace,
+    idMap: idValidation.ids,
+    newFileHashes,
+    resolvedVars,
+  };
+}

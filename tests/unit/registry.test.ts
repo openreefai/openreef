@@ -14,6 +14,7 @@ import {
   RegistryFetchError,
   RegistryFormationNotFoundError,
   RegistryVersionNotFoundError,
+  RegistryDownloadError,
   RegistryIntegrityError,
   type RegistryIndex,
   type RegistryVersionEntry,
@@ -531,6 +532,6 @@ describe('downloadFormationTarball', () => {
         registryUrl: 'https://example.com/index.json',
         env,
       }),
-    ).rejects.toThrow(RegistryFetchError);
+    ).rejects.toThrow(RegistryDownloadError);
   });
 });

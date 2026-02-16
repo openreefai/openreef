@@ -38,6 +38,7 @@ import {
 } from '../core/state-manager.js';
 import { generateAgentsMd } from '../core/agents-md-generator.js';
 import { listFiles } from '../utils/fs.js';
+import { enforceLockfile } from '../core/skills-registry.js';
 import { icons, header, label, value, table } from '../utils/output.js';
 import type { ReefManifest, Binding } from '../types/manifest.js';
 import type {
@@ -383,22 +384,41 @@ async function _install(
   }
 
   // ── Phase 4: Dependencies ──
-  if (manifest.dependencies?.skills) {
-    const skills = Object.keys(manifest.dependencies.skills);
-    if (skills.length > 0) {
-      console.log(
-        `${icons.warning} ${chalk.yellow('Skills not yet installed (ClawHub integration planned):')} ${skills.join(', ')}`,
-      );
+  // Lockfile enforcement for skills
+  if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
+    try {
+      await enforceLockfile(formationPath, manifest.dependencies.skills, {
+        registryUrl: options.registryUrl,
+        skipCache: options.skipCache,
+      });
+    } catch (err) {
+      console.error(`${icons.error} ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
     }
   }
+
+  // Per-service dependency warnings
   if (manifest.dependencies?.services?.length) {
-    const unconfigured = manifest.dependencies.services.filter(
-      (s) => s.required,
-    );
-    if (unconfigured.length > 0) {
-      console.log(
-        `${icons.warning} ${chalk.yellow('Required services — ensure they are configured:')} ${unconfigured.map((s) => s.name).join(', ')}`,
-      );
+    const required = manifest.dependencies.services.filter((s) => s.required);
+    const optional = manifest.dependencies.services.filter((s) => !s.required);
+
+    if (required.length > 0) {
+      console.log(`  ${chalk.red(icons.warning)} ${chalk.bold('Required services:')}`);
+      for (const svc of required) {
+        const urlPart = svc.url ? chalk.dim(` (${svc.url})`) : '';
+        const descPart = svc.description ? chalk.dim(` - ${svc.description}`) : '';
+        console.log(`    - ${chalk.bold(svc.name)}${urlPart}${descPart}`);
+      }
+    }
+    if (optional.length > 0) {
+      console.log(`  ${chalk.dim(icons.info)} ${chalk.dim('Optional services:')}`);
+      for (const svc of optional) {
+        const descPart = svc.description ? chalk.dim(` - ${svc.description} (not required)`) : chalk.dim(' (not required)');
+        console.log(`    - ${svc.name}${descPart}`);
+      }
+    }
+    if (required.length > 0) {
+      console.log('  Ensure required services are configured before proceeding.');
     }
   }
 

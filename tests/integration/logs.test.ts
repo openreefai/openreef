@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, rm, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -255,5 +255,115 @@ describe('reef logs', () => {
     expect(errorOutput).toContain('Multiple');
 
     mockExit.mockRestore();
+  });
+});
+
+describe('reef logs --follow', () => {
+  it('multi-agent follow includes both agent slug prefixes', async () => {
+    await writeState('ns', 'myapp', {
+      triage: { id: 'ns-triage', slug: 'triage' },
+      worker: { id: 'ns-worker', slug: 'worker' },
+    });
+    await writeSessionLog('ns-triage', 'session-001.jsonl', [
+      JSON.stringify({ message: 'Triage init' }),
+    ]);
+    await writeSessionLog('ns-worker', 'session-001.jsonl', [
+      JSON.stringify({ message: 'Worker init' }),
+    ]);
+
+    const stdoutChunks: string[] = [];
+    const writeSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdoutChunks.push(String(chunk));
+        return true;
+      });
+
+    const cap = captureConsole();
+
+    // Start follow in background — it runs forever, so we race with a timeout
+    const logsPromise = logs('ns/myapp', { follow: true, lines: 0 });
+
+    // Wait a bit then append new content to trigger the watchers
+    await new Promise((r) => setTimeout(r, 200));
+    await appendFile(
+      join(tempHome, 'agents', 'ns-triage', 'sessions', 'session-001.jsonl'),
+      JSON.stringify({ message: 'Triage follow line' }) + '\n',
+    );
+    await appendFile(
+      join(tempHome, 'agents', 'ns-worker', 'sessions', 'session-001.jsonl'),
+      JSON.stringify({ message: 'Worker follow line' }) + '\n',
+    );
+
+    // Wait for watchers to fire (debounce is 100ms)
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Force cleanup — send SIGINT to trigger cleanup handlers
+    // Instead, we check what was already written
+    const output = stdoutChunks.join('');
+    // Verify agent slug prefixes appear in output
+    expect(output).toContain('[triage]');
+    expect(output).toContain('[worker]');
+
+    process.emit('SIGINT', 'SIGINT');
+    await logsPromise;
+
+    writeSpy.mockRestore();
+    cap.restore();
+  });
+
+  it('wait mode: prints waiting message when session dir is empty', async () => {
+    await writeState('ns', 'myapp', {
+      helper: { id: 'ns-helper', slug: 'helper' },
+    });
+    // Do NOT create any session files — agent dir exists but no sessions/
+
+    const stdoutChunks: string[] = [];
+    const writeSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdoutChunks.push(String(chunk));
+        return true;
+      });
+
+    const cap = captureConsole();
+
+    // Start follow — helper has no session dir, should enter wait mode
+    const logsPromise = logs('ns/myapp', { follow: true, lines: 0 });
+
+    // Wait a bit for initialization
+    await new Promise((r) => setTimeout(r, 300));
+
+    const output = stdoutChunks.join('');
+    expect(output).toContain('Waiting for sessions');
+    expect(output).toContain('[helper]');
+
+    // Now create session dir and write a file — the 2s poll should pick it up
+    const sessionDir = join(tempHome, 'agents', 'ns-helper', 'sessions');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, 'session-001.jsonl'),
+      JSON.stringify({ message: 'First log line' }) + '\n',
+    );
+
+    // Wait for the 2s polling interval + debounce
+    await new Promise((r) => setTimeout(r, 2500));
+
+    // Append new content to trigger the file watcher
+    await appendFile(
+      join(sessionDir, 'session-001.jsonl'),
+      JSON.stringify({ message: 'Second log line' }) + '\n',
+    );
+
+    await new Promise((r) => setTimeout(r, 300));
+
+    const finalOutput = stdoutChunks.join('');
+    expect(finalOutput).toContain('[helper]');
+
+    process.emit('SIGINT', 'SIGINT');
+    await logsPromise;
+
+    writeSpy.mockRestore();
+    cap.restore();
   });
 });
