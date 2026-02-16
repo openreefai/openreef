@@ -1,7 +1,8 @@
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import JSON5 from 'json5';
-import { resolveConfigPath, resolveWorkspacePath } from './openclaw-paths.js';
+import { resolveConfigPath, resolveStateDir, resolveWorkspacePath } from './openclaw-paths.js';
 import type { OpenClawBinding } from '../types/state.js';
 import type { Binding } from '../types/manifest.js';
 
@@ -107,9 +108,14 @@ export function addAgentEntry(
     return config;
   }
 
-  // Seed main when transitioning from empty to populated list
+  // Seed main when transitioning from empty to populated list.
+  // Main uses "workspace" (no suffix), not "workspace-main".
   if (list.length === 0 && normalizedId !== 'main') {
-    list.unshift({ id: 'main' });
+    list.unshift({
+      id: 'main',
+      default: true,
+      workspace: join(resolveStateDir(env), 'workspace'),
+    });
   }
 
   const entry: Record<string, unknown> = {
