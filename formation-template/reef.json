@@ -1,10 +1,11 @@
 {
   "reef": "1.0",
   "type": "shoal",
-  "name": "my-formation",
+  "name": "formation-template",
   "version": "0.1.0",
-  "description": "TODO: Describe what your formation does",
-  "author": "TODO: Your name or organization",
+  "description": "Starter formation template — customize for your use case",
+  "author": "OpenReef",
+  "license": "MIT",
   "namespace": "my-formation",
   "variables": {
     "ANTHROPIC_API_KEY": {

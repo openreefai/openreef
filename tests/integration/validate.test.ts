@@ -9,7 +9,7 @@ import { computeFileHash } from '../../src/core/state-manager.js';
 
 const execFileAsync = promisify(execFile);
 const CLI = join(import.meta.dirname, '..', '..', 'dist', 'index.js');
-const TEMPLATE = join(import.meta.dirname, '..', '..', 'template');
+const TEMPLATE = join(import.meta.dirname, '..', '..', 'formation-template');
 
 async function runCli(
   ...args: string[]

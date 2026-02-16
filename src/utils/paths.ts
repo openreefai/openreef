@@ -8,5 +8,5 @@ function getPackageRoot(): string {
 }
 
 export function getTemplatePath(): string {
-  return resolve(getPackageRoot(), 'template');
+  return resolve(getPackageRoot(), 'formation-template');
 }

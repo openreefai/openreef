@@ -12,7 +12,7 @@
   "files": [
     "dist",
     "schema",
-    "template"
+    "formation-template"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -22,7 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "smoke": "npm run build && reef validate ./template && reef init smoke-test --yes && reef validate ./smoke-test && reef pack ./smoke-test"
+    "smoke": "npm run build && reef validate ./formation-template && reef init smoke-test --yes && reef validate ./smoke-test && reef pack ./smoke-test"
   },
   "dependencies": {
     "@openreef/schema": "*",

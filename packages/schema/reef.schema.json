@@ -43,6 +43,11 @@
       "type": "string",
       "description": "SPDX license identifier."
     },
+    "repository": {
+      "type": "string",
+      "description": "URL of the formation's source repository",
+      "format": "uri"
+    },
     "compatibility": {
       "type": "object",
       "description": "Platform compatibility constraints.",

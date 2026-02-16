@@ -71,6 +71,7 @@ export interface ReefManifest {
   description: string;
   author?: string;
   license?: string;
+  repository?: string;
   compatibility?: Compatibility;
   namespace: string;
   variables?: Record<string, Variable>;

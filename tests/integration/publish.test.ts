@@ -3,6 +3,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { publish } from '../../src/commands/publish.js';
+import { getStoredToken } from '../../src/core/credentials.js';
+
+vi.mock('../../src/core/credentials.js', () => ({
+  getStoredToken: vi.fn().mockResolvedValue(null),
+}));
 
 let tempHome: string;
 let formationDir: string;

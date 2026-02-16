@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const CLI = join(import.meta.dirname, '..', '..', 'dist', 'index.js');
-const TEMPLATE = join(import.meta.dirname, '..', '..', 'template');
+const TEMPLATE = join(import.meta.dirname, '..', '..', 'formation-template');
 
 async function runCli(...args: string[]): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync('node', [CLI, ...args]);
@@ -14,7 +14,7 @@ async function runCli(...args: string[]): Promise<{ stdout: string; stderr: stri
 describe('reef inspect', () => {
   it('prints formation metadata', async () => {
     const { stdout } = await runCli('inspect', TEMPLATE);
-    expect(stdout).toContain('my-formation');
+    expect(stdout).toContain('formation-template');
     expect(stdout).toContain('0.1.0');
     expect(stdout).toContain('shoal');
   });

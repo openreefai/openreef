@@ -8,7 +8,7 @@ import { extract } from 'tar';
 
 const execFileAsync = promisify(execFile);
 const CLI = join(import.meta.dirname, '..', '..', 'dist', 'index.js');
-const TEMPLATE = join(import.meta.dirname, '..', '..', 'template');
+const TEMPLATE = join(import.meta.dirname, '..', '..', 'formation-template');
 
 const cleanupDirs: string[] = [];
 
@@ -41,7 +41,7 @@ describe('reef pack', () => {
     expect(result.stdout).toContain('.reef.tar.gz');
 
     // Verify the archive exists
-    const expectedFile = join(outputDir, 'my-formation-0.1.0.reef.tar.gz');
+    const expectedFile = join(outputDir, 'formation-template-0.1.0.reef.tar.gz');
     await expect(access(expectedFile)).resolves.toBeUndefined();
   });
 
@@ -53,7 +53,7 @@ describe('reef pack', () => {
 
     const extractDir = join(outputDir, 'extracted');
     await mkdir(extractDir, { recursive: true });
-    const archivePath = join(outputDir, 'my-formation-0.1.0.reef.tar.gz');
+    const archivePath = join(outputDir, 'formation-template-0.1.0.reef.tar.gz');
 
     await extract({ file: archivePath, cwd: extractDir });
 

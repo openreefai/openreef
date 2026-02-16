@@ -84,6 +84,7 @@ The manifest is the single source of truth for a formation's configuration. It i
 | `description` | `string` | Yes | Brief description of what the formation does |
 | `author` | `string` | No | Formation author or organization |
 | `license` | `string` | No | SPDX license identifier |
+| `repository` | `string` | No | URL of the formation's source repository (URI format) |
 | `compatibility` | `object` | No | Platform compatibility constraints |
 | `namespace` | `string` | Yes | Prefix for all agent IDs in this formation |
 | `variables` | `object` | No | User-supplied configuration values |
@@ -578,6 +579,113 @@ List all installed formations with their status.
 ### `reef status <name>`
 
 Show detailed status of an installed formation including agent health, binding status, and last activity.
+
+### `reef pack <path>`
+
+Package a formation into a distributable `.tar.gz` archive. Validates the formation first, then creates `<name>-<version>.reef.tar.gz`.
+
+- Runs `reef validate` before packing
+- Excludes `.env`, `.reef/`, `node_modules/`, and other non-distributable files
+- Output filename follows the pattern `<name>-<version>.reef.tar.gz`
+
+### `reef diff <source>`
+
+Compare a local formation against its deployed state. Shows file changes, variable differences, and topology changes. Useful before running `reef update`.
+
+- Compares manifest fields (agents, bindings, cron, variables)
+- Shows file-level diffs using stored SHA-256 hashes from the state file
+- Highlights added, removed, and modified resources
+
+### `reef repair <identifier>`
+
+Detect and fix discrepancies between a deployed formation's expected state and actual state.
+
+- Rewrites missing workspace files
+- Recreates missing session bindings
+- Re-registers missing cron jobs
+- Reports what was repaired and what was already correct
+
+### `reef logs <identifier>`
+
+View session logs for a formation's agents.
+
+- Optionally filter by agent slug with `--agent <slug>`
+- Displays recent session activity and messages
+
+### `reef publish [path]`
+
+Publish a formation to the Tide registry.
+
+- Requires authentication via `reef login` or `REEF_TOKEN` environment variable
+- Validates the formation before publishing
+- Packs the formation into a tarball
+- Uploads the tarball and registers the version with the registry
+- Flags: `--token`, `--yes`
+
+### `reef search <query>`
+
+Search the Tide registry for formations.
+
+- Supports text and semantic search
+- Filter by formation type with `--type solo|shoal|school`
+- Displays name, description, version, and author for each result
+
+### `reef login` / `reef logout` / `reef whoami`
+
+Manage Tide registry credentials.
+
+- `reef login` — Opens the Tide dashboard in a browser to create an API token, then prompts for input. Tokens are stored in `~/.openreef/credentials.json`.
+- `reef logout` — Removes stored credentials from `~/.openreef/credentials.json`.
+- `reef whoami` — Displays the currently authenticated user and token status.
+
+---
+
+## Registry
+
+### Tide
+
+[Tide](https://tide.openreef.ai) is the default formation registry for OpenReef. It provides hosting, discovery, and distribution of formation packages.
+
+### Authentication Flow
+
+1. Run `reef login`
+2. The CLI opens the Tide dashboard (`https://tide.openreef.ai/tokens`) in the default browser
+3. The user creates or copies an API token from the dashboard
+4. The CLI prompts for the token and stores it in `~/.openreef/credentials.json`
+5. Subsequent commands (`reef publish`, `reef search`) use the stored token automatically
+
+Alternatively, set the `REEF_TOKEN` environment variable to authenticate without `reef login`.
+
+### Publish Workflow
+
+1. `reef validate` — Validates the formation
+2. `reef pack` — Packages the formation into a `.tar.gz` archive
+3. Upload — Sends the tarball to the Tide registry API
+4. Register — Creates a version entry with metadata from `reef.json`
+
+The publish flow is atomic: if any step fails, the version is not registered.
+
+### Version Resolution
+
+When installing by name (e.g., `reef install daily-ops@^1.0.0`), the registry resolves semver ranges to the latest matching version. The resolution order is:
+
+1. Exact version match
+2. Latest version satisfying the semver range
+3. Latest stable version (if no range specified)
+
+### Integrity Verification
+
+Published formations include a SHA-256 digest of the tarball. During `reef install`, the downloaded tarball's digest is verified against the registry-provided value. A mismatch aborts the install.
+
+### Registry URL Configuration
+
+The default registry URL is `https://tide.openreef.ai`. Override with:
+
+```bash
+reef install daily-ops --registry https://registry.example.com
+# or set the environment variable:
+export REEF_REGISTRY_URL=https://registry.example.com
+```
 
 ---
 

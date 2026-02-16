@@ -95,4 +95,22 @@ describe('schema-validator', () => {
     });
     expect(result.valid).toBe(false);
   });
+
+  it('accepts a valid repository URI', async () => {
+    const result = await validateSchema({
+      ...VALID_MANIFEST,
+      repository: 'https://github.com/openreefai/daily-ops',
+    });
+    expect(result.valid).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('rejects an invalid repository URI', async () => {
+    const result = await validateSchema({
+      ...VALID_MANIFEST,
+      repository: 'not-a-uri',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.issues.length).toBeGreaterThan(0);
+  });
 });

@@ -74,7 +74,7 @@ reef install .             # Deploy to OpenClaw
 
 ### Use the Starter Template
 
-The [`template/`](template/) directory contains a ready-to-customize two-agent formation (manager + researcher) with example variables, inter-agent wiring, and knowledge directories.
+The [`formation-template/`](formation-template/) directory contains a ready-to-customize two-agent formation (manager + researcher) with example variables, inter-agent wiring, and knowledge directories.
 
 ## The Manifest (`reef.json`)
 
@@ -150,11 +150,38 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 | `reef list` | List installed formations |
 | `reef status <identifier>` | Show status of a deployed formation |
 | `reef lock [path]` | Resolve and pin skill dependency versions to `reef.lock.json` |
-| `reef publish [path]` | Publish a formation to the GitHub-based registry |
+| `reef publish [path]` | Publish a formation to the Tide registry |
 
-## Formation Registry
+### Registry Commands
 
-Install formations directly from a registry by name:
+| Command | Description |
+|---------|-------------|
+| `reef login` | Authenticate with the Tide registry |
+| `reef logout` | Remove stored credentials |
+| `reef whoami` | Show current login status |
+| `reef search <query>` | Search the Tide registry for formations |
+| `reef publish [path]` | Publish a formation to the Tide registry |
+
+## Formation Registry — Tide
+
+[Tide](https://tide.openreef.ai) is the official formation registry. Browse, search, publish, and install formations.
+
+### Authentication
+
+```bash
+reef login           # Opens dashboard, stores token in ~/.openreef/
+reef whoami          # Check login status
+reef logout          # Remove stored credentials
+```
+
+### Publishing
+
+```bash
+reef publish .                       # Publish current directory
+reef publish . --token reef_tok_xxx  # Explicit token
+```
+
+### Installing from the Registry
 
 ```bash
 reef install daily-ops              # latest version
@@ -177,18 +204,6 @@ reef install daily-ops --skip-cache
 
 **Resolution precedence:** local path > tarball > registry name. If `daily-ops` is a local directory or `.tar.gz` file, it will be used directly.
 
-## Publishing
-
-Publish formations to the GitHub-based registry:
-
-```bash
-reef publish .                         # uses REEF_GITHUB_TOKEN or GITHUB_TOKEN
-reef publish . --token ghp_xxx         # explicit token
-reef publish . --yes                   # skip confirmation
-```
-
-Set `REEF_GITHUB_TOKEN` (or `GITHUB_TOKEN`) for authentication. The publish flow uses an atomic draft-release workflow to prevent partial updates.
-
 ## Security
 
 - **No code execution.** Formations are data files only (JSON + Markdown). Nothing runs during install.
@@ -205,7 +220,9 @@ openreef/
 ├── package.json               # @openreef/cli package
 ├── schema/
 │   └── reef.schema.json       # JSON Schema for reef.json validation
-├── template/                  # Starter formation template
+├── packages/
+│   └── schema/                # @openreef/schema — types and validation
+├── formation-template/        # Starter formation template (bundled with reef init)
 │   ├── reef.json
 │   ├── reef.lock.json
 │   ├── .env.example
@@ -224,7 +241,17 @@ openreef/
 
 - **[`SPEC.md`](SPEC.md)** — The complete formation format specification: manifest schema, inter-agent communication, variable interpolation, install flow, CLI commands, security model, and update/uninstall behavior.
 - **[`schema/reef.schema.json`](schema/reef.schema.json)** — JSON Schema (draft 2020-12) for validating `reef.json` manifests.
-- **[`template/`](template/)** — A working starter formation you can copy and customize.
+- **[`packages/schema/`](packages/schema/)** — The `@openreef/schema` package: TypeScript types, JSON Schema, and validation utilities.
+- **[`formation-template/`](formation-template/)** — A working starter formation you can copy and customize.
+
+Official formations (e.g., `daily-ops`, `launch-ops`) live in their own repositories under the [openreefai](https://github.com/openreefai) GitHub organization.
+
+## Official Formations
+
+| Formation | Description | Repo |
+|-----------|-------------|------|
+| [daily-ops](https://tide.openreef.ai/formations/daily-ops) | 5-agent operations team (email, research, content, briefings) | [openreefai/daily-ops](https://github.com/openreefai/daily-ops) |
+| [launch-ops](https://tide.openreef.ai/formations/launch-ops) | 5-agent launch squad (monitor, triage, reply, docs, content) | [openreefai/launch-ops](https://github.com/openreefai/launch-ops) |
 
 ## License
 
