@@ -1,7 +1,9 @@
 {
   "name": "@openreef/cli",
   "version": "0.5.1",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
   "type": "module",
   "bin": {
@@ -31,11 +33,13 @@
     "dotenv": "^17.3.1",
     "json5": "^2.2.3",
     "ora": "^9.3.0",
+    "semver": "^7.7.4",
     "tar": "^7.5.7",
     "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/semver": "^7.7.1",
     "@types/ws": "^8.18.1",
     "json-schema-to-ts": "^3.1.1",
     "typescript": "^5.9.3",

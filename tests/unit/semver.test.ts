@@ -4,7 +4,6 @@ import {
   compareSemver,
   satisfiesRange,
   resolveRange,
-  UnsupportedSemverRange,
 } from '../../src/utils/semver.js';
 
 describe('parseSemver', () => {
@@ -20,16 +19,20 @@ describe('parseSemver', () => {
     expect(() => parseSemver('invalid')).toThrow('Invalid semver');
   });
 
-  it('rejects version with prerelease suffix', () => {
-    expect(() => parseSemver('1.2.3-beta')).toThrow('Invalid semver');
+  it('parses prerelease versions', () => {
+    const v = parseSemver('1.2.3-alpha.1');
+    expect(v.major).toBe(1);
+    expect(v.minor).toBe(2);
+    expect(v.patch).toBe(3);
+  });
+
+  it('parses build metadata', () => {
+    const v = parseSemver('1.2.3+build.123');
+    expect(v.major).toBe(1);
   });
 
   it('rejects version with trailing junk', () => {
     expect(() => parseSemver('1.2.3junk')).toThrow('Invalid semver');
-  });
-
-  it('rejects version with build metadata', () => {
-    expect(() => parseSemver('1.2.3+build')).toThrow('Invalid semver');
   });
 });
 
@@ -124,21 +127,30 @@ describe('satisfiesRange', () => {
     });
   });
 
-  describe('unsupported ranges', () => {
-    it('throws for || ranges', () => {
-      expect(() => satisfiesRange('1.0.0', '1.x || 2.x')).toThrow(UnsupportedSemverRange);
+  describe('complex ranges (now supported via node-semver)', () => {
+    it('handles compound ranges', () => {
+      expect(satisfiesRange('1.5.0', '>=1.0.0 <2.0.0')).toBe(true);
+      expect(satisfiesRange('2.0.0', '>=1.0.0 <2.0.0')).toBe(false);
     });
 
-    it('throws for compound ranges', () => {
-      expect(() => satisfiesRange('1.5.0', '>=1.0.0 <2.0.0')).toThrow(UnsupportedSemverRange);
+    it('handles OR ranges', () => {
+      expect(satisfiesRange('1.5.0', '^1.0.0 || ^2.0.0')).toBe(true);
+      expect(satisfiesRange('2.5.0', '^1.0.0 || ^2.0.0')).toBe(true);
+      expect(satisfiesRange('3.0.0', '^1.0.0 || ^2.0.0')).toBe(false);
     });
 
-    it('throws for x-ranges', () => {
-      expect(() => satisfiesRange('1.0.0', '1.x')).toThrow(UnsupportedSemverRange);
+    it('handles x-ranges', () => {
+      expect(satisfiesRange('1.5.0', '1.x')).toBe(true);
+      expect(satisfiesRange('2.0.0', '1.x')).toBe(false);
     });
 
-    it('throws for hyphen ranges', () => {
-      expect(() => satisfiesRange('1.5.0', '1.0.0 - 2.0.0')).toThrow(UnsupportedSemverRange);
+    it('handles hyphen ranges', () => {
+      expect(satisfiesRange('1.5.0', '1.0.0 - 2.0.0')).toBe(true);
+      expect(satisfiesRange('2.0.1', '1.0.0 - 2.0.0')).toBe(false);
+    });
+
+    it('handles prerelease ranges', () => {
+      expect(satisfiesRange('1.2.3-alpha.1', '>=1.2.3-alpha.0')).toBe(true);
     });
   });
 });
@@ -164,5 +176,10 @@ describe('resolveRange', () => {
 
   it('wildcard returns highest', () => {
     expect(resolveRange(versions, '*')).toBe('2.1.0');
+  });
+
+  it('resolves from a list including prereleases', () => {
+    const versionsWithPre = ['1.0.0', '1.1.0', '1.2.0-beta.1', '2.0.0'];
+    expect(resolveRange(versionsWithPre, '^1.0.0')).toBe('1.1.0');
   });
 });
