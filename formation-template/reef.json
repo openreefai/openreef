@@ -20,8 +20,16 @@
       "default": "Research",
       "required": false,
       "sensitive": false
+    },
+    "INTERACTION_CHANNEL": {
+      "type": "string",
+      "description": "Primary contact channel in <type>:<scope> form (examples: slack:#ops, telegram:12345, teams:ops-room)",
+      "required": false
     }
   },
+  "bindings": [
+    { "channel": "{{INTERACTION_CHANNEL}}", "agent": "manager" }
+  ],
   "agents": {
     "manager": {
       "source": "agents/manager",

@@ -269,6 +269,39 @@ One agent sends to another but does not receive replies:
 
 Agents not listed in `agentToAgent` cannot send messages to other agents. The topology is enforced at runtime.
 
+## Channel bindings
+
+Bindings connect agents to external communication channels so they can receive messages from humans and external systems. Each binding maps a channel to an agent.
+
+### Channel format
+
+Channels use the `<type>:<scope>` format:
+
+| Example | Type | Scope |
+|---------|------|-------|
+| `slack:#ops` | Slack | The `#ops` channel |
+| `telegram:12345` | Telegram | Chat ID `12345` |
+| `teams:ops-room` | Microsoft Teams | The `ops-room` channel |
+
+### Functional vs. interaction channels
+
+- **Functional channels** are hard-coded in the manifest for operational purposes (e.g., a dedicated alert channel that never changes).
+- **Interaction channels** are set by the operator at deploy time via variables, allowing different environments to use different channels.
+
+The template uses the interaction pattern with `{{INTERACTION_CHANNEL}}` interpolation:
+
+```json
+"bindings": [
+  { "channel": "{{INTERACTION_CHANNEL}}", "agent": "manager" }
+]
+```
+
+The `{{INTERACTION_CHANNEL}}` token is resolved during `reef install` from the operator's `.env` file or CLI prompt, just like any other variable.
+
+### Adding channels at runtime
+
+For channels beyond what the manifest declares, use the coordinator agent's bootstrap or reconfigure flow. Dynamic channel registrations are stored in `knowledge/dynamic/` and managed by the agent itself rather than the manifest.
+
 ## Cron scheduling
 
 The `cron` array in reef.json defines scheduled prompts that fire automatically:
