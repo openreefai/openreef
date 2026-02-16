@@ -19,6 +19,7 @@ import { publish } from './commands/publish.js';
 import { diff } from './commands/diff.js';
 import { exportFormation } from './commands/export.js';
 import { registerSearchCommand } from './commands/search.js';
+import { registerTokenCommand } from './commands/token.js';
 import { VERSION } from './version.js';
 
 export function buildProgram(): Command {
@@ -293,6 +294,7 @@ export function buildProgram(): Command {
     });
 
   registerSearchCommand(program);
+  registerTokenCommand(program);
 
   return program;
 }
