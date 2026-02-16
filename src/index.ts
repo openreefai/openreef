@@ -257,10 +257,9 @@ export function buildProgram(): Command {
 
   program
     .command('publish [path]')
-    .description('Publish a formation to the registry')
-    .option('--token <token>', 'GitHub personal access token')
-    .option('--owner <owner>', 'GitHub repository owner')
-    .option('--repo <repo>', 'GitHub repository name')
+    .description('Publish a formation to the Tide registry')
+    .option('--token <token>', 'Tide API token (or set REEF_TOKEN)')
+    .option('--registry <url>', 'Registry URL', 'https://tide.openreef.ai')
     .option('--yes', 'Skip confirmation prompts')
     .action(async (path, options) => {
       try {
