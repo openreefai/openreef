@@ -13,7 +13,7 @@ reef install ./founder-ops
 
 Setting up a multi-agent team on OpenClaw today means manually creating each agent, writing personality files, wiring inter-agent communication, configuring tools, and setting up cron jobs. If you want to share that setup or reproduce it, you're copying workspace directories and hoping nothing breaks.
 
-OpenReef gives agent teams a **package format** — like Docker Compose for AI agents. One `reef.json` manifest declares everything. Install it, configure your variables, and the whole team spins up.
+OpenReef gives agent teams a **package format** - like Docker Compose for AI agents. One `reef.json` manifest declares everything. Install it, configure your variables, and the whole team spins up.
 
 ## What's a Formation?
 
@@ -21,7 +21,7 @@ A formation is a directory containing everything needed to deploy a team of AI a
 
 ```
 my-formation/
-├── reef.json              # Manifest — agents, wiring, dependencies, variables
+├── reef.json              # Manifest: agents, wiring, dependencies, variables
 ├── reef.lock.json         # Pinned skill versions with integrity digests
 ├── .env.example           # Quick setup template
 ├── README.md              # Human-readable overview
@@ -162,7 +162,7 @@ Variables support `{{VARIABLE_NAME}}` interpolation across all text files. Sensi
 | `reef search <query>` | Search the Tide registry for formations |
 | `reef publish [path]` | Publish a formation to the Tide registry |
 
-## Formation Registry — Tide
+## Formation Registry - Tide
 
 [Tide](https://tide.openreef.ai) is the official formation registry. Browse, search, publish, and install formations.
 
@@ -221,7 +221,7 @@ openreef/
 ├── schema/
 │   └── reef.schema.json       # JSON Schema for reef.json validation
 ├── packages/
-│   └── schema/                # @openreef/schema — types and validation
+│   └── schema/                # @openreef/schema: types and validation
 ├── formation-template/        # Starter formation template (bundled with reef init)
 │   ├── reef.json
 │   ├── reef.lock.json
@@ -231,18 +231,18 @@ openreef/
 │       ├── manager/
 │       └── researcher/
 ├── src/                       # CLI source (TypeScript, ESM)
-│   ├── index.ts               # Entry point — shebang + commander setup
+│   ├── index.ts               # Entry point: shebang + commander setup
 │   ├── types/                 # ReefManifest, FormationState, ValidationResult
 │   ├── core/                  # Manifest loader, validators, config patcher, registry, state manager
 │   ├── commands/              # init, inspect, validate, pack, install, uninstall, update, repair, export, logs, lock, list, status
 │   └── utils/                 # Path resolution, chalk helpers, fs utilities, identifiers
-└── tests/                     # Vitest — unit, integration, and type drift tests
+└── tests/                     # Vitest: unit, integration, and type drift tests
 ```
 
-- **[`SPEC.md`](SPEC.md)** — The complete formation format specification: manifest schema, inter-agent communication, variable interpolation, install flow, CLI commands, security model, and update/uninstall behavior.
-- **[`schema/reef.schema.json`](schema/reef.schema.json)** — JSON Schema (draft 2020-12) for validating `reef.json` manifests.
-- **[`packages/schema/`](packages/schema/)** — The `@openreef/schema` package: TypeScript types, JSON Schema, and validation utilities.
-- **[`formation-template/`](formation-template/)** — A working starter formation you can copy and customize.
+- **[`SPEC.md`](SPEC.md)** - The complete formation format specification: manifest schema, inter-agent communication, variable interpolation, install flow, CLI commands, security model, and update/uninstall behavior.
+- **[`schema/reef.schema.json`](schema/reef.schema.json)** - JSON Schema (draft 2020-12) for validating `reef.json` manifests.
+- **[`packages/schema/`](packages/schema/)** - The `@openreef/schema` package: TypeScript types, JSON Schema, and validation utilities.
+- **[`formation-template/`](formation-template/)** - A working starter formation you can copy and customize.
 
 Official formations (e.g., `daily-ops`, `launch-ops`) live in their own repositories under the [openreefai](https://github.com/openreefai) GitHub organization.
 

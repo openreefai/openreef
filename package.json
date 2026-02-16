@@ -4,7 +4,7 @@
   "workspaces": [
     "packages/*"
   ],
-  "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
+  "description": "CLI toolchain for OpenReef formations - package and deploy multi-agent teams",
   "type": "module",
   "bin": {
     "reef": "dist/index.js"

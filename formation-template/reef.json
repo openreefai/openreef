@@ -3,7 +3,7 @@
   "type": "shoal",
   "name": "formation-template",
   "version": "0.1.0",
-  "description": "Starter formation template — customize for your use case",
+  "description": "Starter formation template. Customize for your use case.",
   "author": "OpenReef",
   "license": "MIT",
   "namespace": "my-formation",

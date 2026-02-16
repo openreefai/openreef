@@ -1,4 +1,4 @@
-# Formation Template — Starter kit for OpenReef formations
+# Formation Template - Starter kit for OpenReef formations
 
 This is the official starter template for building OpenReef formations. It includes a working two-agent team (manager + researcher) with all required files, ready to customize for your use case.
 
@@ -9,9 +9,9 @@ Use `reef init` to scaffold a new formation from this template, or copy it manua
 ```
 formation-template/
   reef.json                         # Formation manifest (name, agents, topology, cron, deps)
-  reef.lock.json                    # Lockfile — pins exact skill versions for supply-chain safety
+  reef.lock.json                    # Lockfile: pins exact skill versions for supply-chain safety
   .env.example                      # Environment variable template (generated from reef.json variables)
-  README.md                         # This file — Formation Author's Guide
+  README.md                         # This file (Formation Author's Guide)
   agents/
     manager/
       SOUL.md                       # Agent personality, behavior, and instructions
@@ -34,7 +34,7 @@ formation-template/
 # 1. Scaffold a new formation from this template
 reef init my-formation
 
-# 2. Edit reef.json — set name, description, author, agents, topology
+# 2. Edit reef.json: set name, description, author, agents, topology
 cd my-formation
 $EDITOR reef.json
 
@@ -374,13 +374,13 @@ Each agent can declare sandbox settings that control its runtime environment:
 
 ### Network
 
-- `true` — agent can make outbound network requests (web search, API calls)
-- `false` — agent is fully sandboxed with no network access
+- `true` - agent can make outbound network requests (web search, API calls)
+- `false` - agent is fully sandboxed with no network access
 
 ### Filesystem
 
-- `"restricted"` — agent can only read/write within its own workspace directory
-- `"none"` — agent has no filesystem access
+- `"restricted"` - agent can only read/write within its own workspace directory
+- `"none"` - agent has no filesystem access
 
 ## Validation
 
@@ -448,5 +448,5 @@ The Tide registry is the central package registry for OpenReef formations. Publi
 
 For real-world formation examples, see:
 
-- **[daily-ops](https://github.com/openreefai/daily-ops)** — A five-agent daily operations squad with hub-and-spoke topology, cron-driven email monitoring, research, content writing, and daily briefings
-- **[launch-ops](https://github.com/openreefai/launch-ops)** — A five-agent formation for two-week product launches: channel monitoring, signal triage, response drafting, documentation fixes, and content creation
+- **[daily-ops](https://github.com/openreefai/daily-ops)** - A five-agent daily operations squad with hub-and-spoke topology, cron-driven email monitoring, research, content writing, and daily briefings
+- **[launch-ops](https://github.com/openreefai/launch-ops)** - A five-agent formation for two-week product launches: channel monitoring, signal triage, response drafting, documentation fixes, and content creation

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openreef.dev/schema/reef.schema.json",
   "title": "OpenReef Formation Manifest",
-  "description": "Schema for reef.json — the manifest file for an OpenReef formation.",
+  "description": "Schema for reef.json, the manifest file for an OpenReef formation.",
   "type": "object",
   "required": ["reef", "type", "name", "version", "description", "namespace", "agents"],
   "additionalProperties": false,
@@ -282,7 +282,7 @@
         },
         "agent_responds": {
           "type": "object",
-          "description": "Functional connectivity check. Opt-in only — requires --verify-connectivity flag.",
+          "description": "Functional connectivity check. Opt-in only, requires --verify-connectivity flag.",
           "additionalProperties": false,
           "properties": {
             "enabled": {

@@ -9,8 +9,8 @@ OpenReef is a format and toolchain for packaging multi-agent team configurations
 
 **Terminology:**
 
-- **OpenReef** — The project: format specification, JSON schema, CLI toolchain
-- **Formation** — An individual deployable agent team package (e.g., "Install the Founder Ops Formation")
+- **OpenReef** - The project: format specification, JSON schema, CLI toolchain
+- **Formation** - An individual deployable agent team package (e.g., "Install the Founder Ops Formation")
 
 ---
 
@@ -41,7 +41,7 @@ my-formation/
 
 | File | Required | Description |
 |------|----------|-------------|
-| `reef.json` | Yes | Formation manifest — all metadata, agent definitions, wiring, and dependencies |
+| `reef.json` | Yes | Formation manifest: all metadata, agent definitions, wiring, and dependencies |
 | `reef.lock.json` | No | Lockfile pinning exact skill versions with SHA-256 digests |
 | `.env.example` | No | Template showing required environment variables with example values |
 | `README.md` | No | Human-readable formation overview and setup guide |
@@ -63,9 +63,9 @@ Each `agents/<slug>/` maps directly to an OpenClaw workspace directory on deploy
 
 Each agent has two knowledge subdirectories with different lifecycle semantics:
 
-- **`knowledge/static/`** — Formation-authored reference material. This directory is fully controlled by the formation and is **overwritten on `reef update`**. Use it for SOPs, reference docs, and curated data the agent should have access to.
+- **`knowledge/static/`** - Formation-authored reference material. This directory is fully controlled by the formation and is **overwritten on `reef update`**. Use it for SOPs, reference docs, and curated data the agent should have access to.
 
-- **`knowledge/dynamic/`** — Runtime-writable storage. Agents store learned data, notes, and accumulated knowledge here. This directory is **preserved during updates**. `SOUL.md` should instruct agents to write here when they need to persist information across sessions.
+- **`knowledge/dynamic/`** - Runtime-writable storage. Agents store learned data, notes, and accumulated knowledge here. This directory is **preserved during updates**. `SOUL.md` should instruct agents to write here when they need to persist information across sessions.
 
 ---
 
@@ -103,7 +103,7 @@ The manifest is the single source of truth for a formation's configuration. It i
 | `shoal` | 2–5 agents with defined roles and communication topology |
 | `school` | 6+ agents or dynamically-spawning agent patterns |
 
-In v1.0, the `type` field is **metadata only** — used for marketplace filtering and cataloging. The installer logic is identical for all types. Future versions may introduce specific orchestration logic for `school` types.
+In v1.0, the `type` field is **metadata only** - used for marketplace filtering and cataloging. The installer logic is identical for all types. Future versions may introduce specific orchestration logic for `school` types.
 
 ### Compatibility
 
@@ -383,7 +383,7 @@ All text files in a formation (`*.md`, `.env.example`, etc.) support `{{VARIABLE
 ### Rules
 
 1. Variables must be declared in the `variables` section of `reef.json`
-2. `sensitive: true` variables are never stored in plaintext — the state file uses environment variable references instead
+2. `sensitive: true` variables are never stored in plaintext; the state file uses environment variable references instead
 3. Undeclared `{{tokens}}` are left as-is during interpolation (agents may use mustache-style syntax in their own content)
 4. Interpolation happens during the Deploy phase
 
@@ -422,8 +422,8 @@ Your mission: Resolve customer issues
 
 You have access to the following tools:
 
-- **web-search** (v1.2.3) — Search the web for information
-- **file-read** (v2.0.0) — Read files from the workspace
+- **web-search** (v1.2.3) - Search the web for information
+- **file-read** (v2.0.0) - Read files from the workspace
 ```
 
 ---
@@ -634,9 +634,9 @@ Search the Tide registry for formations.
 
 Manage Tide registry credentials.
 
-- `reef login` — Opens the Tide dashboard in a browser to create an API token, then prompts for input. Tokens are stored in `~/.openreef/credentials.json`.
-- `reef logout` — Removes stored credentials from `~/.openreef/credentials.json`.
-- `reef whoami` — Displays the currently authenticated user and token status.
+- `reef login` - Opens the Tide dashboard in a browser to create an API token, then prompts for input. Tokens are stored in `~/.openreef/credentials.json`.
+- `reef logout` - Removes stored credentials from `~/.openreef/credentials.json`.
+- `reef whoami` - Displays the currently authenticated user and token status.
 
 ---
 
@@ -658,10 +658,10 @@ Alternatively, set the `REEF_TOKEN` environment variable to authenticate without
 
 ### Publish Workflow
 
-1. `reef validate` — Validates the formation
-2. `reef pack` — Packages the formation into a `.tar.gz` archive
-3. Upload — Sends the tarball to the Tide registry API
-4. Register — Creates a version entry with metadata from `reef.json`
+1. `reef validate` - Validates the formation
+2. `reef pack` - Packages the formation into a `.tar.gz` archive
+3. Upload - Sends the tarball to the Tide registry API
+4. Register - Creates a version entry with metadata from `reef.json`
 
 The publish flow is atomic: if any step fails, the version is not registered.
 
