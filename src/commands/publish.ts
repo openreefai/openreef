@@ -7,6 +7,7 @@ import { validateStructure } from '../core/structural-validator.js';
 import { pack as packFormation } from '../core/packer.js';
 import { icons } from '../utils/output.js';
 import { VERSION } from '../version.js';
+import { getStoredToken } from '../core/credentials.js';
 
 export interface PublishOptions {
   token?: string;
@@ -22,12 +23,11 @@ export async function publish(
 ): Promise<void> {
   const registryUrl = options.registry ?? process.env.REEF_REGISTRY_URL ?? DEFAULT_REGISTRY_URL;
 
-  // 1. Resolve token
-  const token = options.token ?? process.env.REEF_TOKEN;
+  // 1. Resolve token: --token flag > REEF_TOKEN env > ~/.openreef/credentials.json
+  const token = options.token ?? process.env.REEF_TOKEN ?? await getStoredToken(registryUrl);
   if (!token) {
     console.error(
-      `${icons.error} No Tide API token provided. Use --token or set REEF_TOKEN.\n` +
-      `  Run ${chalk.cyan('reef token')} to open the dashboard and generate one.`,
+      `${icons.error} Not logged in. Run ${chalk.cyan('reef login')} to authenticate.`,
     );
     process.exit(1);
   }
@@ -134,7 +134,7 @@ export async function publish(
   switch (response.status) {
     case 401:
       console.error(
-        `${icons.error} Authentication failed. Run ${chalk.cyan('reef token')} to set up your API token, then set ${chalk.cyan('REEF_TOKEN')} in your environment.`,
+        `${icons.error} Authentication failed. Run ${chalk.cyan('reef login')} to re-authenticate.`,
       );
       break;
     case 403:

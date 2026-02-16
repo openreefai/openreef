@@ -135,7 +135,7 @@ describe('reef publish (Tide API)', () => {
     }
 
     expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No Tide API token'),
+      expect.stringContaining('Not logged in'),
     );
 
     errSpy.mockRestore();
