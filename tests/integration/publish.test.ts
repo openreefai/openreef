@@ -231,7 +231,7 @@ describe('reef publish (Tide API)', () => {
     }
 
     expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Forbidden'),
+      expect.stringContaining('Permission denied'),
     );
 
     errSpy.mockRestore();

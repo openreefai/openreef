@@ -133,16 +133,18 @@ export async function publish(
 
   switch (response.status) {
     case 401:
-      console.error(`${icons.error} Authentication failed. Your token may be invalid or expired.`);
-      console.error(`  Run ${chalk.cyan('reef token')} to generate a new one.`);
+      console.error(
+        `${icons.error} Authentication failed. Run ${chalk.cyan('reef token')} to set up your API token, then set ${chalk.cyan('REEF_TOKEN')} in your environment.`,
+      );
       break;
     case 403:
-      console.error(`${icons.error} Forbidden: ${errorBody}`);
-      console.error('  You may not have permission to publish this formation (not owner or name is reserved).');
+      console.error(
+        `${icons.error} Permission denied: you are not the owner of '${manifest.name}'. Only the original publisher can publish new versions.`,
+      );
       break;
     case 409:
       console.error(
-        `${icons.error} Version ${manifest.version} of "${manifest.name}" already exists in the registry.`,
+        `${icons.error} Version ${manifest.version} of '${manifest.name}' already exists. Increment the version in ${chalk.cyan('reef.json')} to publish a new version.`,
       );
       break;
     default:

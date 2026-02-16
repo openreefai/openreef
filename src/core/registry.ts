@@ -47,6 +47,7 @@ export interface TideFormationDetail {
 export interface TideVersionDetail {
   name: string;
   version: string;
+  tarball_sha256?: string;
   sha256?: string;
   download_url?: string;
   readme?: string;
@@ -55,6 +56,7 @@ export interface TideVersionDetail {
 /** Response from GET /api/formations/:name/resolve?range=... */
 export interface TideResolveResult {
   version: string;
+  tarball_sha256?: string;
   sha256?: string;
 }
 
@@ -250,7 +252,7 @@ async function resolveRange(
     const downloadUrl = `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(data.version)}/download`;
 
     return {
-      entry: { url: downloadUrl, sha256: data.sha256 },
+      entry: { url: downloadUrl, sha256: data.tarball_sha256 ?? data.sha256 },
       resolvedVersion: data.version,
     };
   } catch (err) {
@@ -318,7 +320,7 @@ async function fetchVersionDetail(
     const downloadUrl = data.download_url ?? `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(version)}/download`;
 
     const result = {
-      entry: { url: downloadUrl, sha256: data.sha256 },
+      entry: { url: downloadUrl, sha256: data.tarball_sha256 ?? data.sha256 },
       resolvedVersion: data.version,
     };
 
@@ -389,13 +391,10 @@ async function fetchLatestVersion(
       throw new RegistryVersionNotFoundError(name, 'latest');
     }
 
-    const downloadUrl = `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(data.latest_version)}/download`;
-    const result = {
-      entry: { url: downloadUrl },
-      resolvedVersion: data.latest_version,
-    };
+    // Fetch version detail to get the integrity hash (tarball_sha256)
+    const result = await fetchVersionDetail(name, data.latest_version, registryUrl, cacheDir, options);
 
-    // Write to cache
+    // Write to formation cache so future "latest" lookups are fast
     await mkdir(join(cacheDir, 'formations'), { recursive: true });
     await writeFile(cachePath, JSON.stringify(result, null, 2));
 

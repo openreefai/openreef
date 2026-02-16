@@ -147,16 +147,29 @@ describe('lookupFormation', () => {
   });
 
   it('resolves latest version when no version specified', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          name: 'daily-ops',
-          latest_version: '1.2.0',
-          description: 'Daily operations',
-        }),
-    }) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn()
+      // First call: formation detail (to get latest_version)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            name: 'daily-ops',
+            latest_version: '1.2.0',
+            description: 'Daily operations',
+          }),
+      })
+      // Second call: version detail (to get tarball_sha256)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            name: 'daily-ops',
+            version: '1.2.0',
+            tarball_sha256: 'abc789',
+          }),
+      }) as unknown as typeof fetch;
 
     const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
     const result = await lookupFormation('daily-ops', undefined, {
@@ -166,6 +179,7 @@ describe('lookupFormation', () => {
 
     expect(result.resolvedVersion).toBe('1.2.0');
     expect(result.entry.url).toContain('/api/formations/daily-ops/1.2.0/download');
+    expect(result.entry.sha256).toBe('abc789');
   });
 
   it('resolves specific version', async () => {
@@ -176,7 +190,7 @@ describe('lookupFormation', () => {
         Promise.resolve({
           name: 'daily-ops',
           version: '1.1.0',
-          sha256: 'def456',
+          tarball_sha256: 'def456',
         }),
     }) as unknown as typeof fetch;
 
@@ -235,7 +249,7 @@ describe('lookupFormation', () => {
       json: () =>
         Promise.resolve({
           version: '1.2.3',
-          sha256: 'abc123',
+          tarball_sha256: 'abc123',
         }),
     }) as unknown as typeof fetch;
 
