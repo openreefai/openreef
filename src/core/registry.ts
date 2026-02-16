@@ -233,6 +233,10 @@ async function resolveRange(
     });
 
     if (response.status === 404) {
+      const body = await response.text();
+      if (body.includes('No version satisfies') || body.includes('No published versions')) {
+        throw new RegistryVersionNotFoundError(name, range);
+      }
       throw new RegistryFormationNotFoundError(name);
     }
 
@@ -250,7 +254,11 @@ async function resolveRange(
       resolvedVersion: data.version,
     };
   } catch (err) {
-    if (err instanceof RegistryFormationNotFoundError || err instanceof RegistryFetchError) {
+    if (
+      err instanceof RegistryFormationNotFoundError ||
+      err instanceof RegistryVersionNotFoundError ||
+      err instanceof RegistryFetchError
+    ) {
       throw err;
     }
     throw new RegistryFetchError(
