@@ -1,6 +1,6 @@
 {
   "name": "@openreef/schema",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "JSON Schema, TypeScript types, and validation for OpenReef formation manifests (reef.json)",
   "license": "MIT",
   "repository": {
