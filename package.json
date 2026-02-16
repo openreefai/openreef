@@ -1,6 +1,7 @@
 {
   "name": "@openreef/cli",
   "version": "0.5.1",
+  "workspaces": ["packages/*"],
   "description": "CLI toolchain for OpenReef formations — package and deploy multi-agent teams",
   "type": "module",
   "bin": {

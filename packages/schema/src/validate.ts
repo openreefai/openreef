@@ -1,7 +1,6 @@
-import { createRequire } from 'node:module';
-import type { ValidationResult } from '../types/validation.js';
-
-const require = createRequire(import.meta.url);
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let validateFn: any = null;
@@ -18,28 +17,30 @@ async function getValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   addFormats(ajv);
 
-  const schemaPath = require.resolve('@openreef/schema/reef.schema.json');
-  const { readFileSync } = await import('node:fs');
+  const currentFile = fileURLToPath(import.meta.url);
+  const schemaPath = resolve(dirname(currentFile), '..', 'reef.schema.json');
   const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
   validateFn = ajv.compile(schema);
   return validateFn;
 }
 
-export async function validateSchema(data: unknown): Promise<ValidationResult> {
+export interface ManifestValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export async function validateManifest(data: unknown): Promise<ManifestValidationResult> {
   const validate = await getValidator();
   const valid = validate(data) as boolean;
 
   if (valid) {
-    return { valid: true, issues: [] };
+    return { valid: true, errors: [] };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const issues = (validate.errors ?? []).map((err: any) => ({
-    severity: 'error' as const,
-    code: 'SCHEMA_ERROR',
-    message: `${err.instancePath || '/'} ${err.message ?? 'unknown error'}`,
-    path: err.instancePath || '/',
-  }));
+  const errors = (validate.errors ?? []).map((err: any) =>
+    `${err.instancePath || '/'} ${err.message ?? 'unknown error'}`
+  );
 
-  return { valid: false, issues };
+  return { valid: false, errors };
 }

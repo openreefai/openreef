@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openreef.dev/schema/reef.schema.json",
+  "title": "OpenReef Formation Manifest",
+  "description": "Schema for reef.json — the manifest file for an OpenReef formation.",
+  "type": "object",
+  "required": ["reef", "type", "name", "version", "description", "namespace", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "reef": {
+      "type": "string",
+      "description": "Specification version.",
+      "const": "1.0"
+    },
+    "type": {
+      "type": "string",
+      "description": "Formation category: solo (1 agent), shoal (2-5 agents), or school (6+ agents).",
+      "enum": ["solo", "shoal", "school"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Formation name. Lowercase alphanumeric with hyphens.",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the formation.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of what the formation does.",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "author": {
+      "type": "string",
+      "description": "Formation author or organization."
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX license identifier."
+    },
+    "compatibility": {
+      "type": "object",
+      "description": "Platform compatibility constraints.",
+      "additionalProperties": false,
+      "properties": {
+        "openclaw": {
+          "type": "string",
+          "description": "Required OpenClaw version range (semver)."
+        }
+      }
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Prefix for all agent IDs in this formation.",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "variables": {
+      "type": "object",
+      "description": "User-supplied configuration values.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Value type.",
+            "enum": ["string", "number", "boolean"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the variable."
+          },
+          "default": {
+            "description": "Default value if not provided."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether a value must be supplied.",
+            "default": false
+          },
+          "sensitive": {
+            "type": "boolean",
+            "description": "If true, value is never stored in plaintext.",
+            "default": false
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent definitions keyed by slug.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Relative path to the agent's directory."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this agent does."
+          },
+          "role": {
+            "type": "string",
+            "description": "Agent's role label."
+          },
+          "model": {
+            "type": "string",
+            "description": "LLM model identifier."
+          },
+          "tools": {
+            "type": "object",
+            "description": "Tool configuration.",
+            "additionalProperties": false,
+            "properties": {
+              "allow": {
+                "type": "array",
+                "description": "List of allowed tool/skill names.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "sandbox": {
+            "type": "object",
+            "description": "OpenClaw sandbox configuration.",
+            "properties": {
+              "network": {
+                "type": "boolean",
+                "description": "Whether the agent can access the network."
+              },
+              "filesystem": {
+                "type": "string",
+                "description": "Filesystem access level.",
+                "enum": ["full", "restricted", "none"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "agentToAgent": {
+      "type": "object",
+      "description": "Communication topology as directed adjacency list. Keys are source agent slugs, values are arrays of target agent slugs.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "description": "Channel routing rules.",
+      "items": {
+        "type": "object",
+        "required": ["channel", "agent"],
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Channel identifier."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug to bind."
+          }
+        }
+      }
+    },
+    "cron": {
+      "type": "array",
+      "description": "Scheduled jobs with agent assignment.",
+      "items": {
+        "type": "object",
+        "required": ["schedule", "agent", "prompt"],
+        "additionalProperties": false,
+        "properties": {
+          "schedule": {
+            "type": "string",
+            "description": "Cron expression."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug to trigger."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Message sent to the agent."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone.",
+            "default": "UTC"
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "Required skills and services.",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "object",
+          "description": "Required ClawHub skills with semver version ranges.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "type": "array",
+          "description": "Required external services (informational).",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Service name."
+              },
+              "url": {
+                "type": "string",
+                "description": "Service URL."
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether the service is required.",
+                "default": true
+              },
+              "description": {
+                "type": "string",
+                "description": "What the service is used for."
+              }
+            }
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "description": "Post-deploy health check configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "agent_exists": {
+          "type": "boolean",
+          "description": "Verify all agents were created.",
+          "default": true
+        },
+        "file_exists": {
+          "type": "boolean",
+          "description": "Verify workspace files were written.",
+          "default": true
+        },
+        "binding_active": {
+          "type": "boolean",
+          "description": "Verify all bindings are active.",
+          "default": true
+        },
+        "cron_exists": {
+          "type": "boolean",
+          "description": "Verify cron jobs were created.",
+          "default": true
+        },
+        "agent_responds": {
+          "type": "object",
+          "description": "Functional connectivity check. Opt-in only — requires --verify-connectivity flag.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether agent_responds check is enabled.",
+              "default": false
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in seconds for agent response.",
+              "default": 30,
+              "minimum": 1,
+              "maximum": 300
+            }
+          }
+        }
+      }
+    }
+  }
+}

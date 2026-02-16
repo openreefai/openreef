@@ -1,0 +1,25 @@
+{
+  "name": "@openreef/schema",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "reef.schema.json"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./reef.schema.json": "./reef.schema.json"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
