@@ -18,13 +18,14 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build --workspaces && tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "smoke": "npm run build && reef validate ./template && reef init smoke-test --yes && reef validate ./smoke-test && reef pack ./smoke-test"
   },
   "dependencies": {
+    "@openreef/schema": "*",
     "@inquirer/prompts": "^8.2.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

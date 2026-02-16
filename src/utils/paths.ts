@@ -7,10 +7,6 @@ function getPackageRoot(): string {
   return resolve(dirname(currentFile), '..', '..');
 }
 
-export function getSchemaPath(): string {
-  return resolve(getPackageRoot(), 'schema', 'reef.schema.json');
-}
-
 export function getTemplatePath(): string {
   return resolve(getPackageRoot(), 'template');
 }
