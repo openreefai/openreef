@@ -19,10 +19,15 @@ export function parseSemver(v: string): ParsedVersion {
 }
 
 export function compareSemver(a: string, b: string): number {
-  return semver.compare(a, b);
+  const result = semver.compare(a, b);
+  return result;
 }
 
 export function satisfiesRange(version: string, range: string): boolean {
+  const valid = semver.validRange(range);
+  if (valid === null) {
+    throw new Error(`Invalid semver range: "${range}"`);
+  }
   return semver.satisfies(version, range);
 }
 
