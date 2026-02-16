@@ -828,30 +828,33 @@ describe('reef install (registry)', () => {
   });
 
   function mockRegistryFetch(registryUrl: string) {
-    const registryIndex = {
-      version: 1,
-      formations: {
-        'daily-ops': {
-          description: 'Daily operations',
-          latest: '1.2.0',
-          versions: {
-            '1.2.0': {
-              url: 'https://example.com/daily-ops-1.2.0.reef.tar.gz',
-              sha256: tarballSha256,
-            },
-          },
-        },
-      },
-    };
-
     globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url === registryUrl) {
+      // Tide API: GET /api/formations/daily-ops (formation detail)
+      if (url.includes('/api/formations/daily-ops') && !url.includes('/1.2.0') && !url.includes('/resolve')) {
         return {
           ok: true,
-          json: () => Promise.resolve(registryIndex),
+          status: 200,
+          json: () => Promise.resolve({
+            name: 'daily-ops',
+            description: 'Daily operations',
+            latest_version: '1.2.0',
+          }),
         };
       }
-      if (url === 'https://example.com/daily-ops-1.2.0.reef.tar.gz') {
+      // Tide API: GET /api/formations/daily-ops/1.2.0 (version detail)
+      if (url.includes('/api/formations/daily-ops/1.2.0') && !url.includes('/download')) {
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            name: 'daily-ops',
+            version: '1.2.0',
+            sha256: tarballSha256,
+          }),
+        };
+      }
+      // Tide API: GET /api/formations/daily-ops/1.2.0/download (tarball download)
+      if (url.includes('/api/formations/daily-ops/1.2.0/download')) {
         const content = await readFile(tarballPath);
         return {
           ok: true,
@@ -864,7 +867,7 @@ describe('reef install (registry)', () => {
             ),
         };
       }
-      return { ok: false, status: 404, statusText: 'Not Found' };
+      return { ok: false, status: 404, statusText: 'Not Found', json: () => Promise.resolve({ error: 'Not found' }) };
     }) as unknown as typeof fetch;
   }
 
@@ -921,20 +924,16 @@ describe('reef install (registry)', () => {
   });
 
   it('throws error for unknown formation name', async () => {
-    const registryIndex = {
-      version: 1,
-      formations: {},
-    };
-
     globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(registryIndex),
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: 'Formation not found' }),
     }) as unknown as typeof fetch;
 
     await expect(
       install('nonexistent', {
         yes: true,
-        registryUrl: 'https://registry.example.com/index.json',
+        registryUrl: 'https://registry.example.com',
       }),
     ).rejects.toThrow(/not found in registry/);
   });

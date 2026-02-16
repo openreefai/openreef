@@ -564,32 +564,84 @@ describe('reef update (registry)', () => {
     return { tarballPath, sha256 };
   }
 
-  function mockFetch(
-    registryUrl: string,
-    index: object,
+  function mockTideFetch(
+    _registryUrl: string,
+    formations: Record<string, { latest: string; versions: Record<string, { sha256?: string }> }>,
     tarballs: Record<string, string>,
   ) {
+    // Build a map from "name-version" to tarball path
+    const tarballByNameVersion: Record<string, string> = {};
+    for (const path of Object.values(tarballs)) {
+      // Extract name-version from path like ".../formation-daily-ops-1.0.0/..."
+      for (const [name, formation] of Object.entries(formations)) {
+        for (const version of Object.keys(formation.versions)) {
+          if (path.includes(`${name}-${version}`)) {
+            tarballByNameVersion[`${name}:${version}`] = path;
+          }
+        }
+      }
+    }
+
     globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url === registryUrl) {
-        return {
-          ok: true,
-          json: () => Promise.resolve(index),
-        };
+      // Match Tide API endpoints - check most specific first
+      for (const [name, formation] of Object.entries(formations)) {
+        // Download endpoint: /api/formations/:name/:version/download
+        const downloadRe = new RegExp(`/api/formations/${name}/([^/]+)/download`);
+        const downloadMatch = url.match(downloadRe);
+        if (downloadMatch) {
+          const version = downloadMatch[1];
+          const tarballPath = tarballByNameVersion[`${name}:${version}`];
+          if (tarballPath) {
+            const content = await readFile(tarballPath);
+            return {
+              ok: true,
+              arrayBuffer: () =>
+                Promise.resolve(
+                  content.buffer.slice(
+                    content.byteOffset,
+                    content.byteOffset + content.byteLength,
+                  ),
+                ),
+            };
+          }
+          return { ok: false, status: 404, statusText: 'Not Found', json: () => Promise.resolve({ error: 'Not found' }) };
+        }
+
+        // Version detail endpoint: /api/formations/:name/:version (no trailing /download)
+        const versionRe = new RegExp(`/api/formations/${name}/([^/?]+)$`);
+        const versionMatch = url.match(versionRe);
+        if (versionMatch) {
+          const version = versionMatch[1];
+          const versionData = formation.versions[version];
+          if (versionData) {
+            return {
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve({
+                name,
+                version,
+                sha256: versionData.sha256,
+              }),
+            };
+          }
+          return { ok: false, status: 404, json: () => Promise.resolve({ error: 'Version not found' }) };
+        }
+
+        // Formation detail endpoint: /api/formations/:name (exact match)
+        const formationRe = new RegExp(`/api/formations/${name}$`);
+        if (formationRe.test(url)) {
+          return {
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+              name,
+              latest_version: formation.latest,
+            }),
+          };
+        }
       }
-      if (tarballs[url]) {
-        const content = await readFile(tarballs[url]);
-        return {
-          ok: true,
-          arrayBuffer: () =>
-            Promise.resolve(
-              content.buffer.slice(
-                content.byteOffset,
-                content.byteOffset + content.byteLength,
-              ),
-            ),
-        };
-      }
-      return { ok: false, status: 404, statusText: 'Not Found' };
+
+      return { ok: false, status: 404, statusText: 'Not Found', json: () => Promise.resolve({ error: 'Not found' }) };
     }) as unknown as typeof fetch;
   }
 
@@ -597,27 +649,17 @@ describe('reef update (registry)', () => {
     const v1 = await createFormationTarball('daily-ops', '1.0.0', 'ops');
     const v2 = await createFormationTarball('daily-ops', '1.1.0', 'ops');
 
-    const registryUrl = 'https://registry.example.com/index.json';
+    const registryUrl = 'https://registry.example.com';
 
     // First install v1.0.0
-    const installIndex = {
-      version: 1,
-      formations: {
-        'daily-ops': {
-          latest: '1.0.0',
-          versions: {
-            '1.0.0': {
-              url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-              sha256: v1.sha256,
-            },
-          },
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '1.0.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
         },
       },
-    };
-
-    mockFetch(registryUrl, installIndex, {
-      'https://example.com/daily-ops-1.0.0.tar.gz': v1.tarballPath,
-    });
+    }, { [v1.tarballPath]: v1.tarballPath });
 
     await install('daily-ops', {
       yes: true,
@@ -629,28 +671,15 @@ describe('reef update (registry)', () => {
     expect(state?.registryRef).toEqual({ name: 'daily-ops', version: '1.0.0' });
 
     // Now update to v1.1.0
-    const updateIndex = {
-      version: 1,
-      formations: {
-        'daily-ops': {
-          latest: '1.1.0',
-          versions: {
-            '1.0.0': {
-              url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-              sha256: v1.sha256,
-            },
-            '1.1.0': {
-              url: 'https://example.com/daily-ops-1.1.0.tar.gz',
-              sha256: v2.sha256,
-            },
-          },
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '1.1.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
+          '1.1.0': { sha256: v2.sha256 },
         },
       },
-    };
-
-    mockFetch(registryUrl, updateIndex, {
-      'https://example.com/daily-ops-1.1.0.tar.gz': v2.tarballPath,
-    });
+    }, { [v2.tarballPath]: v2.tarballPath });
 
     await update('daily-ops', {
       yes: true,
@@ -666,27 +695,20 @@ describe('reef update (registry)', () => {
   it('unverified tarball is always re-fetched', async () => {
     const v1 = await createFormationTarball('sketchy', '0.1.0', 'ops');
 
-    const registryUrl = 'https://registry.example.com/index.json';
-    const index = {
-      version: 1,
-      formations: {
-        'sketchy': {
-          latest: '0.1.0',
-          versions: {
-            '0.1.0': {
-              url: 'https://example.com/sketchy-0.1.0.tar.gz',
-              // no sha256 — unverified
-            },
-          },
-        },
-      },
-    };
+    const registryUrl = 'https://registry.example.com';
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    mockFetch(registryUrl, index, {
-      'https://example.com/sketchy-0.1.0.tar.gz': v1.tarballPath,
-    });
+    mockTideFetch(registryUrl, {
+      'sketchy': {
+        latest: '0.1.0',
+        versions: {
+          '0.1.0': {
+            // no sha256 — unverified
+          },
+        },
+      },
+    }, { [v1.tarballPath]: v1.tarballPath });
 
     await install('sketchy', {
       yes: true,
@@ -698,9 +720,16 @@ describe('reef update (registry)', () => {
     );
 
     // Update — should re-download since unverified
-    mockFetch(registryUrl, index, {
-      'https://example.com/sketchy-0.1.0.tar.gz': v1.tarballPath,
-    });
+    mockTideFetch(registryUrl, {
+      'sketchy': {
+        latest: '0.1.0',
+        versions: {
+          '0.1.0': {
+            // no sha256 — unverified
+          },
+        },
+      },
+    }, { [v1.tarballPath]: v1.tarballPath });
 
     await update('sketchy', {
       yes: true,
@@ -708,11 +737,11 @@ describe('reef update (registry)', () => {
       skipCache: true,
     });
 
-    // The tarball download URL should have been fetched during update
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://example.com/sketchy-0.1.0.tar.gz',
-      expect.anything(),
+    // The tarball download URL should have been fetched during update (download endpoint)
+    const downloadCalls = vi.mocked(globalThis.fetch).mock.calls.filter(
+      (c) => (c[0] as string).includes('/download'),
     );
+    expect(downloadCalls.length).toBeGreaterThanOrEqual(1);
 
     warnSpy.mockRestore();
   });
@@ -720,25 +749,16 @@ describe('reef update (registry)', () => {
   it('update from local after registry install clears registryRef', async () => {
     const v1 = await createFormationTarball('daily-ops', '1.0.0', 'ops');
 
-    const registryUrl = 'https://registry.example.com/index.json';
-    const index = {
-      version: 1,
-      formations: {
-        'daily-ops': {
-          latest: '1.0.0',
-          versions: {
-            '1.0.0': {
-              url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-              sha256: v1.sha256,
-            },
-          },
+    const registryUrl = 'https://registry.example.com';
+
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '1.0.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
         },
       },
-    };
-
-    mockFetch(registryUrl, index, {
-      'https://example.com/daily-ops-1.0.0.tar.gz': v1.tarballPath,
-    });
+    }, { [v1.tarballPath]: v1.tarballPath });
 
     await install('daily-ops', {
       yes: true,
@@ -787,55 +807,32 @@ describe('reef update (registry)', () => {
     const v1 = await createFormationTarball('daily-ops', '1.0.0', 'ops');
     const v2 = await createFormationTarball('daily-ops', '2.0.0', 'ops');
 
-    const registryUrl = 'https://registry.example.com/index.json';
+    const registryUrl = 'https://registry.example.com';
 
     // Install v1
-    mockFetch(
-      registryUrl,
-      {
-        version: 1,
-        formations: {
-          'daily-ops': {
-            latest: '1.0.0',
-            versions: {
-              '1.0.0': {
-                url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-                sha256: v1.sha256,
-              },
-            },
-          },
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '1.0.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
         },
       },
-      { 'https://example.com/daily-ops-1.0.0.tar.gz': v1.tarballPath },
-    );
+    }, { [v1.tarballPath]: v1.tarballPath });
     await install('daily-ops', { yes: true, registryUrl });
 
     let state = await loadState('ops', 'daily-ops');
     expect(state?.registryRef?.version).toBe('1.0.0');
 
     // Update to v2 via registry
-    mockFetch(
-      registryUrl,
-      {
-        version: 1,
-        formations: {
-          'daily-ops': {
-            latest: '2.0.0',
-            versions: {
-              '1.0.0': {
-                url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-                sha256: v1.sha256,
-              },
-              '2.0.0': {
-                url: 'https://example.com/daily-ops-2.0.0.tar.gz',
-                sha256: v2.sha256,
-              },
-            },
-          },
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '2.0.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
+          '2.0.0': { sha256: v2.sha256 },
         },
       },
-      { 'https://example.com/daily-ops-2.0.0.tar.gz': v2.tarballPath },
-    );
+    }, { [v2.tarballPath]: v2.tarballPath });
     await update('daily-ops', { yes: true, registryUrl, skipCache: true });
 
     state = await loadState('ops', 'daily-ops');
@@ -897,25 +894,15 @@ describe('reef update (registry)', () => {
     // Install from registry
     const v1 = await createFormationTarball('daily-ops', '1.0.0', 'ops');
 
-    const registryUrl = 'https://registry.example.com/index.json';
-    mockFetch(
-      registryUrl,
-      {
-        version: 1,
-        formations: {
-          'daily-ops': {
-            latest: '1.0.0',
-            versions: {
-              '1.0.0': {
-                url: 'https://example.com/daily-ops-1.0.0.tar.gz',
-                sha256: v1.sha256,
-              },
-            },
-          },
+    const registryUrl = 'https://registry.example.com';
+    mockTideFetch(registryUrl, {
+      'daily-ops': {
+        latest: '1.0.0',
+        versions: {
+          '1.0.0': { sha256: v1.sha256 },
         },
       },
-      { 'https://example.com/daily-ops-1.0.0.tar.gz': v1.tarballPath },
-    );
+    }, { [v1.tarballPath]: v1.tarballPath });
 
     await install('daily-ops', { yes: true, registryUrl });
 

@@ -130,55 +130,132 @@ describe('registryCacheDir', () => {
   });
 });
 
-// ── lookupFormation ──
+// ── lookupFormation (Tide API) ──
 
 describe('lookupFormation', () => {
-  const index: RegistryIndex = {
-    version: 1,
-    formations: {
-      'daily-ops': {
-        description: 'Daily operations',
-        latest: '1.2.0',
-        versions: {
-          '1.2.0': {
-            url: 'https://example.com/daily-ops-1.2.0.tar.gz',
-            sha256: 'abc123',
-          },
-          '1.1.0': {
-            url: 'https://example.com/daily-ops-1.1.0.tar.gz',
-            sha256: 'def456',
-          },
-        },
-      },
-    },
-  };
+  let originalFetch: typeof globalThis.fetch;
+  let tempHome: string;
 
-  it('resolves latest version when no version specified', () => {
-    const result = lookupFormation(index, 'daily-ops');
-    expect(result.resolvedVersion).toBe('1.2.0');
-    expect(result.entry.sha256).toBe('abc123');
+  beforeEach(async () => {
+    tempHome = await mkdtemp(join(tmpdir(), 'reef-reg-test-'));
+    originalFetch = globalThis.fetch;
   });
 
-  it('resolves specific version', () => {
-    const result = lookupFormation(index, 'daily-ops', '1.1.0');
+  afterEach(async () => {
+    globalThis.fetch = originalFetch;
+    await rm(tempHome, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('resolves latest version when no version specified', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          name: 'daily-ops',
+          latest_version: '1.2.0',
+          description: 'Daily operations',
+        }),
+    }) as unknown as typeof fetch;
+
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    const result = await lookupFormation('daily-ops', undefined, {
+      registryUrl: 'https://tide.example.com',
+      env,
+    });
+
+    expect(result.resolvedVersion).toBe('1.2.0');
+    expect(result.entry.url).toContain('/api/formations/daily-ops/1.2.0/download');
+  });
+
+  it('resolves specific version', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          name: 'daily-ops',
+          version: '1.1.0',
+          sha256: 'def456',
+        }),
+    }) as unknown as typeof fetch;
+
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    const result = await lookupFormation('daily-ops', '1.1.0', {
+      registryUrl: 'https://tide.example.com',
+      env,
+    });
+
     expect(result.resolvedVersion).toBe('1.1.0');
     expect(result.entry.sha256).toBe('def456');
   });
 
-  it('throws RegistryFormationNotFoundError for unknown formation', () => {
-    expect(() => lookupFormation(index, 'unknown-formation')).toThrow(
-      RegistryFormationNotFoundError,
-    );
+  it('throws RegistryFormationNotFoundError for unknown formation', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () =>
+        Promise.resolve({
+          error: 'Formation not found',
+        }),
+    }) as unknown as typeof fetch;
+
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    await expect(
+      lookupFormation('unknown-formation', undefined, {
+        registryUrl: 'https://tide.example.com',
+        env,
+      }),
+    ).rejects.toThrow(RegistryFormationNotFoundError);
   });
 
-  it('throws RegistryVersionNotFoundError for unknown version', () => {
-    expect(() => lookupFormation(index, 'daily-ops', '9.9.9')).toThrow(
-      RegistryVersionNotFoundError,
-    );
+  it('throws RegistryVersionNotFoundError for unknown version', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () =>
+        Promise.resolve({
+          error: 'Version not found',
+        }),
+    }) as unknown as typeof fetch;
+
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    await expect(
+      lookupFormation('daily-ops', '9.9.9', {
+        registryUrl: 'https://tide.example.com',
+        env,
+      }),
+    ).rejects.toThrow(RegistryVersionNotFoundError);
+  });
+
+  it('resolves semver range via resolve endpoint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          version: '1.2.3',
+          sha256: 'abc123',
+        }),
+    }) as unknown as typeof fetch;
+
+    const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
+    const result = await lookupFormation('daily-ops', '^1.0.0', {
+      registryUrl: 'https://tide.example.com',
+      env,
+    });
+
+    expect(result.resolvedVersion).toBe('1.2.3');
+    expect(result.entry.sha256).toBe('abc123');
+
+    // Verify it called the resolve endpoint
+    const call = vi.mocked(globalThis.fetch).mock.calls[0];
+    const url = call[0] as string;
+    expect(url).toContain('/resolve?range=');
   });
 });
 
-// ── fetchRegistryIndex ──
+// ── fetchRegistryIndex (legacy compat) ──
 
 describe('fetchRegistryIndex', () => {
   let tempHome: string;
@@ -277,8 +354,7 @@ describe('fetchRegistryIndex', () => {
       join(cacheDir, 'registry-index.json'),
       JSON.stringify(validIndex),
     );
-    // Make cache stale by backdating mtime (we use skipCache to force fetch)
-    // Actually, use skipCache to trigger fetch but have fetch fail
+
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('network error')) as unknown as typeof fetch;
 
     const result = await fetchRegistryIndex({
@@ -320,7 +396,6 @@ describe('fetchRegistryIndex', () => {
     const env = { OPENCLAW_STATE_DIR: tempHome } as NodeJS.ProcessEnv;
     const cacheDir = registryCacheDir('https://example.com/index.json', env);
     await mkdir(cacheDir, { recursive: true });
-    // Stale cache with wrong version
     await writeFile(
       join(cacheDir, 'registry-index.json'),
       JSON.stringify({ version: 2, formations: {} }),
@@ -388,7 +463,7 @@ describe('downloadFormationTarball', () => {
     };
 
     const result = await downloadFormationTarball('daily-ops', '1.0.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
 
@@ -414,7 +489,7 @@ describe('downloadFormationTarball', () => {
     };
 
     await downloadFormationTarball('daily-ops', '1.0.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -423,7 +498,7 @@ describe('downloadFormationTarball', () => {
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
 
     const result = await downloadFormationTarball('daily-ops', '1.0.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
 
@@ -448,7 +523,7 @@ describe('downloadFormationTarball', () => {
 
     await expect(
       downloadFormationTarball('daily-ops', '1.0.0', entry, {
-        registryUrl: 'https://example.com/index.json',
+        registryUrl: 'https://example.com',
         env,
       }),
     ).rejects.toThrow(RegistryIntegrityError);
@@ -472,7 +547,7 @@ describe('downloadFormationTarball', () => {
     };
 
     const result = await downloadFormationTarball('sketchy', '0.1.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
 
@@ -504,7 +579,7 @@ describe('downloadFormationTarball', () => {
     // First download populates unverified cache
     globalThis.fetch = mockFetchImpl();
     await downloadFormationTarball('sketchy', '0.1.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -512,7 +587,7 @@ describe('downloadFormationTarball', () => {
     // Second download should still fetch (unverified = never reuse)
     globalThis.fetch = mockFetchImpl();
     await downloadFormationTarball('sketchy', '0.1.0', entry, {
-      registryUrl: 'https://example.com/index.json',
+      registryUrl: 'https://example.com',
       env,
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -529,7 +604,7 @@ describe('downloadFormationTarball', () => {
 
     await expect(
       downloadFormationTarball('evil', '1.0.0', entry, {
-        registryUrl: 'https://example.com/index.json',
+        registryUrl: 'https://example.com',
         env,
       }),
     ).rejects.toThrow(RegistryDownloadError);

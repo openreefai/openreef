@@ -33,6 +33,31 @@ export interface RegistryIndex {
   formations: Record<string, RegistryFormation>;
 }
 
+/** Response from GET /api/formations/:name */
+export interface TideFormationDetail {
+  name: string;
+  description?: string;
+  type?: string;
+  latest_version?: string;
+  total_downloads?: number;
+  owner_id?: string;
+}
+
+/** Response from GET /api/formations/:name/:version */
+export interface TideVersionDetail {
+  name: string;
+  version: string;
+  sha256?: string;
+  download_url?: string;
+  readme?: string;
+}
+
+/** Response from GET /api/formations/:name/resolve?range=... */
+export interface TideResolveResult {
+  version: string;
+  sha256?: string;
+}
+
 export interface RegistryOptions {
   registryUrl?: string;
   skipCache?: boolean;
@@ -90,9 +115,8 @@ export class RegistryIntegrityError extends Error {
 
 // ── Constants ──
 
-const DEFAULT_REGISTRY_URL =
-  'https://raw.githubusercontent.com/openreefai/formations/main/index.json';
-const INDEX_TTL_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_REGISTRY_URL = 'https://tide.openreef.ai';
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 // ── Utility functions ──
 
@@ -158,145 +182,254 @@ export function registryCacheDir(
   return join(reefStateDir, 'cache', urlHash);
 }
 
-function indexCachePath(cacheDir: string): string {
-  return join(cacheDir, 'registry-index.json');
-}
-
-function tarballCachePath(
-  cacheDir: string,
-  name: string,
-  version: string,
-  verified: boolean,
-): string {
+function formationCachePath(cacheDir: string, name: string): string {
   const safeName = sanitizeFilenameComponent(name);
-  const safeVersion = sanitizeFilenameComponent(version);
-  // Include a short hash of the original name:version to prevent collisions
-  // when different pairs sanitize to the same filename
-  const disambig = hashString(`${name}:${version}`).slice(0, 8);
-  const subdir = verified ? 'tarballs' : 'unverified';
-  return join(cacheDir, subdir, `${safeName}-${safeVersion}-${disambig}.reef.tar.gz`);
+  return join(cacheDir, 'formations', `${safeName}.json`);
 }
 
-function isValidRegistryIndex(data: unknown): data is RegistryIndex {
-  if (typeof data !== 'object' || data === null) return false;
-  const obj = data as Record<string, unknown>;
-  if (obj.version !== 1) return false;
-  if (
-    typeof obj.formations !== 'object' ||
-    obj.formations === null ||
-    Array.isArray(obj.formations)
-  )
-    return false;
-  return true;
-}
+// ── Tide API lookups ──
 
-// ── Core functions ──
-
-export async function fetchRegistryIndex(
+/**
+ * Look up a formation from the Tide API.
+ * If version is provided, fetches that specific version detail.
+ * If version is omitted, fetches the formation detail (which includes latest_version).
+ */
+export async function lookupFormation(
+  name: string,
+  version?: string,
   options?: RegistryOptions,
-): Promise<RegistryIndex> {
+): Promise<{ entry: RegistryVersionEntry; resolvedVersion: string }> {
   const registryUrl = resolveRegistryUrl(options);
-  validateUrlScheme(registryUrl, 'registry index');
+  validateUrlScheme(registryUrl, 'registry');
 
   const cacheDir = registryCacheDir(registryUrl, options?.env);
-  const cachePath = indexCachePath(cacheDir);
 
-  // Check cache (unless skip-cache)
+  // If a semver range is provided (contains special chars), use the resolve endpoint
+  if (version && /[~^>=<| ]/.test(version)) {
+    return resolveRange(name, version, registryUrl, cacheDir, options);
+  }
+
+  if (version && version !== 'latest') {
+    // Fetch specific version
+    return fetchVersionDetail(name, version, registryUrl, cacheDir, options);
+  }
+
+  // No version or "latest" — fetch formation detail to get latest_version
+  return fetchLatestVersion(name, registryUrl, cacheDir, options);
+}
+
+async function resolveRange(
+  name: string,
+  range: string,
+  registryUrl: string,
+  cacheDir: string,
+  options?: RegistryOptions,
+): Promise<{ entry: RegistryVersionEntry; resolvedVersion: string }> {
+  const url = `${registryUrl}/api/formations/${encodeURIComponent(name)}/resolve?range=${encodeURIComponent(range)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': `@openreef/cli/${VERSION}` },
+    });
+
+    if (response.status === 404) {
+      throw new RegistryFormationNotFoundError(name);
+    }
+
+    if (!response.ok) {
+      throw new RegistryFetchError(
+        `Registry returned HTTP ${response.status}: ${response.statusText}`,
+      );
+    }
+
+    const data = await response.json() as TideResolveResult;
+    const downloadUrl = `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(data.version)}/download`;
+
+    return {
+      entry: { url: downloadUrl, sha256: data.sha256 },
+      resolvedVersion: data.version,
+    };
+  } catch (err) {
+    if (err instanceof RegistryFormationNotFoundError || err instanceof RegistryFetchError) {
+      throw err;
+    }
+    throw new RegistryFetchError(
+      `Failed to resolve range "${range}" for "${name}": ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
+}
+
+async function fetchVersionDetail(
+  name: string,
+  version: string,
+  registryUrl: string,
+  cacheDir: string,
+  options?: RegistryOptions,
+): Promise<{ entry: RegistryVersionEntry; resolvedVersion: string }> {
+  // Check cache first
+  const cachePath = join(cacheDir, 'versions', `${sanitizeFilenameComponent(name)}-${sanitizeFilenameComponent(version)}.json`);
+
   if (!options?.skipCache && existsSync(cachePath)) {
     try {
       const stats = await stat(cachePath);
       const age = Date.now() - stats.mtimeMs;
-      if (age < INDEX_TTL_MS) {
+      if (age < CACHE_TTL_MS) {
         const raw = await readFile(cachePath, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (isValidRegistryIndex(parsed)) {
-          return parsed;
-        }
-        // Invalid cache — fall through to fetch
-        await unlink(cachePath).catch(() => {});
+        const cached = JSON.parse(raw) as { entry: RegistryVersionEntry; resolvedVersion: string };
+        return cached;
       }
     } catch {
       // Cache read error — fall through to fetch
     }
   }
 
-  // Fetch from network
+  const url = `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+
   try {
-    const response = await fetch(registryUrl, {
+    const response = await fetch(url, {
       headers: { 'User-Agent': `@openreef/cli/${VERSION}` },
     });
+
+    if (response.status === 404) {
+      // Could be formation not found or version not found — try to distinguish
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (body.error?.toLowerCase().includes('formation')) {
+        throw new RegistryFormationNotFoundError(name);
+      }
+      throw new RegistryVersionNotFoundError(name, version);
+    }
+
     if (!response.ok) {
       throw new RegistryFetchError(
         `Registry returned HTTP ${response.status}: ${response.statusText}`,
       );
     }
-    const data = await response.json();
-    if (!isValidRegistryIndex(data)) {
-      throw new RegistryFetchError(
-        'Registry index has invalid format (version must be 1 with formations object)',
-      );
-    }
+
+    const data = await response.json() as TideVersionDetail;
+    const downloadUrl = data.download_url ?? `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(version)}/download`;
+
+    const result = {
+      entry: { url: downloadUrl, sha256: data.sha256 },
+      resolvedVersion: data.version,
+    };
 
     // Write to cache
-    await mkdir(cacheDir, { recursive: true });
-    await writeFile(cachePath, JSON.stringify(data, null, 2));
+    await mkdir(join(cacheDir, 'versions'), { recursive: true });
+    await writeFile(cachePath, JSON.stringify(result, null, 2));
 
-    return data;
+    return result;
   } catch (err) {
-    if (err instanceof RegistryFetchError) {
+    if (
+      err instanceof RegistryFormationNotFoundError ||
+      err instanceof RegistryVersionNotFoundError ||
+      err instanceof RegistryFetchError
+    ) {
       // Try stale cache fallback
-      return staleCacheFallback(cachePath, err);
+      return versionCacheFallback(cachePath, err);
     }
-    // Network error — try stale cache fallback
-    return staleCacheFallback(
-      cachePath,
-      new RegistryFetchError(
-        `Failed to fetch registry index: ${err instanceof Error ? err.message : String(err)}`,
-        err,
-      ),
+    const fetchErr = new RegistryFetchError(
+      `Failed to fetch version detail for "${name}@${version}": ${err instanceof Error ? err.message : String(err)}`,
+      err,
     );
+    return versionCacheFallback(cachePath, fetchErr);
   }
 }
 
-async function staleCacheFallback(
+async function fetchLatestVersion(
+  name: string,
+  registryUrl: string,
+  cacheDir: string,
+  options?: RegistryOptions,
+): Promise<{ entry: RegistryVersionEntry; resolvedVersion: string }> {
+  // Check cache first
+  const cachePath = formationCachePath(cacheDir, name);
+
+  if (!options?.skipCache && existsSync(cachePath)) {
+    try {
+      const stats = await stat(cachePath);
+      const age = Date.now() - stats.mtimeMs;
+      if (age < CACHE_TTL_MS) {
+        const raw = await readFile(cachePath, 'utf-8');
+        const cached = JSON.parse(raw) as { entry: RegistryVersionEntry; resolvedVersion: string };
+        return cached;
+      }
+    } catch {
+      // Cache read error — fall through to fetch
+    }
+  }
+
+  const url = `${registryUrl}/api/formations/${encodeURIComponent(name)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': `@openreef/cli/${VERSION}` },
+    });
+
+    if (response.status === 404) {
+      throw new RegistryFormationNotFoundError(name);
+    }
+
+    if (!response.ok) {
+      throw new RegistryFetchError(
+        `Registry returned HTTP ${response.status}: ${response.statusText}`,
+      );
+    }
+
+    const data = await response.json() as TideFormationDetail;
+    if (!data.latest_version) {
+      throw new RegistryVersionNotFoundError(name, 'latest');
+    }
+
+    const downloadUrl = `${registryUrl}/api/formations/${encodeURIComponent(name)}/${encodeURIComponent(data.latest_version)}/download`;
+    const result = {
+      entry: { url: downloadUrl },
+      resolvedVersion: data.latest_version,
+    };
+
+    // Write to cache
+    await mkdir(join(cacheDir, 'formations'), { recursive: true });
+    await writeFile(cachePath, JSON.stringify(result, null, 2));
+
+    return result;
+  } catch (err) {
+    if (
+      err instanceof RegistryFormationNotFoundError ||
+      err instanceof RegistryVersionNotFoundError ||
+      err instanceof RegistryFetchError
+    ) {
+      return formationCacheFallback(cachePath, err);
+    }
+    const fetchErr = new RegistryFetchError(
+      `Failed to fetch formation "${name}": ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+    return formationCacheFallback(cachePath, fetchErr);
+  }
+}
+
+async function versionCacheFallback(
   cachePath: string,
-  originalError: RegistryFetchError,
-): Promise<RegistryIndex> {
+  originalError: Error,
+): Promise<{ entry: RegistryVersionEntry; resolvedVersion: string }> {
   if (existsSync(cachePath)) {
     try {
       const raw = await readFile(cachePath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (isValidRegistryIndex(parsed)) {
-        return parsed;
+      const cached = JSON.parse(raw) as { entry: RegistryVersionEntry; resolvedVersion: string };
+      if (cached.entry && cached.resolvedVersion) {
+        return cached;
       }
-      // Invalid stale cache — delete and throw
       await unlink(cachePath).catch(() => {});
     } catch {
-      // Corrupted cache — delete and throw
       await unlink(cachePath).catch(() => {});
     }
   }
   throw originalError;
 }
 
-export function lookupFormation(
-  index: RegistryIndex,
-  name: string,
-  version?: string,
-): { entry: RegistryVersionEntry; resolvedVersion: string } {
-  const formation = index.formations[name];
-  if (!formation) {
-    throw new RegistryFormationNotFoundError(name);
-  }
+const formationCacheFallback = versionCacheFallback;
 
-  const resolvedVersion = version ?? formation.latest;
-  const entry = formation.versions[resolvedVersion];
-  if (!entry) {
-    throw new RegistryVersionNotFoundError(name, resolvedVersion);
-  }
-
-  return { entry, resolvedVersion };
-}
+// ── Download ──
 
 export async function downloadFormationTarball(
   name: string,
@@ -334,13 +467,14 @@ export async function downloadFormationTarball(
   }
 }
 
+// ── Main resolution entry point ──
+
 export async function resolveFromRegistry(
   name: string,
   version?: string,
   options?: RegistryOptions,
 ): Promise<{ formationPath: string; tempDir: string; name: string; version: string }> {
-  const index = await fetchRegistryIndex(options);
-  const { entry, resolvedVersion } = lookupFormation(index, name, version);
+  const { entry, resolvedVersion } = await lookupFormation(name, version, options);
   const tarballPath = await downloadFormationTarball(
     name,
     resolvedVersion,
@@ -358,4 +492,103 @@ export async function resolveFromRegistry(
     name,
     version: resolvedVersion,
   };
+}
+
+// ── Legacy compat: fetchRegistryIndex ──
+// Kept for backward compatibility with tests. In the new API model,
+// we don't fetch a monolithic index. Instead, we query per-formation endpoints.
+
+export async function fetchRegistryIndex(
+  options?: RegistryOptions,
+): Promise<RegistryIndex> {
+  const registryUrl = resolveRegistryUrl(options);
+  validateUrlScheme(registryUrl, 'registry');
+
+  const cacheDir = registryCacheDir(registryUrl, options?.env);
+  const cachePath = join(cacheDir, 'registry-index.json');
+
+  // Check cache (unless skip-cache)
+  if (!options?.skipCache && existsSync(cachePath)) {
+    try {
+      const stats = await stat(cachePath);
+      const age = Date.now() - stats.mtimeMs;
+      if (age < CACHE_TTL_MS) {
+        const raw = await readFile(cachePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (isValidRegistryIndex(parsed)) {
+          return parsed;
+        }
+        await unlink(cachePath).catch(() => {});
+      }
+    } catch {
+      // Cache read error — fall through to fetch
+    }
+  }
+
+  // Fetch from network (try the old-style index URL in case it exists)
+  try {
+    const response = await fetch(registryUrl, {
+      headers: { 'User-Agent': `@openreef/cli/${VERSION}` },
+    });
+    if (!response.ok) {
+      throw new RegistryFetchError(
+        `Registry returned HTTP ${response.status}: ${response.statusText}`,
+      );
+    }
+    const data = await response.json();
+    if (!isValidRegistryIndex(data)) {
+      throw new RegistryFetchError(
+        'Registry index has invalid format (version must be 1 with formations object)',
+      );
+    }
+
+    // Write to cache
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(cachePath, JSON.stringify(data, null, 2));
+
+    return data;
+  } catch (err) {
+    if (err instanceof RegistryFetchError) {
+      return staleCacheFallback(cachePath, err);
+    }
+    return staleCacheFallback(
+      cachePath,
+      new RegistryFetchError(
+        `Failed to fetch registry index: ${err instanceof Error ? err.message : String(err)}`,
+        err,
+      ),
+    );
+  }
+}
+
+function isValidRegistryIndex(data: unknown): data is RegistryIndex {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  if (obj.version !== 1) return false;
+  if (
+    typeof obj.formations !== 'object' ||
+    obj.formations === null ||
+    Array.isArray(obj.formations)
+  )
+    return false;
+  return true;
+}
+
+async function staleCacheFallback(
+  cachePath: string,
+  originalError: RegistryFetchError,
+): Promise<RegistryIndex> {
+  if (existsSync(cachePath)) {
+    try {
+      const raw = await readFile(cachePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (isValidRegistryIndex(parsed)) {
+        return parsed;
+      }
+      await unlink(cachePath).catch(() => {});
+    } catch {
+      await unlink(cachePath).catch(() => {});
+    }
+  }
+  throw originalError;
 }
