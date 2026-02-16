@@ -1,6 +1,13 @@
 {
   "name": "@openreef/schema",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "JSON Schema, TypeScript types, and validation for OpenReef formation manifests (reef.json)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openreefai/openreef.git",
+    "directory": "packages/schema"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
