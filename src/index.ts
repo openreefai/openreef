@@ -18,6 +18,7 @@ import { lock } from './commands/lock.js';
 import { publish } from './commands/publish.js';
 import { diff } from './commands/diff.js';
 import { exportFormation } from './commands/export.js';
+import { registerSearchCommand } from './commands/search.js';
 import { VERSION } from './version.js';
 
 export function buildProgram(): Command {
@@ -290,6 +291,8 @@ export function buildProgram(): Command {
         process.exit(1);
       }
     });
+
+  registerSearchCommand(program);
 
   return program;
 }
