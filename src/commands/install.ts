@@ -27,6 +27,8 @@ import {
   resolveSelectedBindings,
   isBareChannel,
   pruneMatchObject,
+  expandCompoundChannel,
+  ensureChannelAllowlisted,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -247,6 +249,11 @@ async function _install(
       // Prune empty optional fields from the match object
       const pruned = pruneMatchObject(b.match as unknown as Record<string, unknown>);
       return { ...b, match: pruned as unknown as Binding['match'] };
+    })
+    .map((b) => {
+      // Expand compound "type:scope" channel values into channel + peer
+      const expanded = expandCompoundChannel(b.match as unknown as Record<string, unknown>);
+      return { ...b, match: expanded as unknown as Binding['match'] };
     })
     .filter((b) => {
       if (b.match.channel.trim() === '') return false;
@@ -803,6 +810,7 @@ async function _install(
       match: binding.match,
     };
     patchedConfig = addBinding(patchedConfig, openClawBinding);
+    patchedConfig = ensureChannelAllowlisted(patchedConfig, openClawBinding);
     openClawBindings.push(openClawBinding);
   }
 

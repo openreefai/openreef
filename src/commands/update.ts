@@ -26,6 +26,7 @@ import {
   extractChannelType,
   isBareChannel,
   getConfiguredChannels,
+  ensureChannelAllowlisted,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -505,6 +506,7 @@ async function _update(
   }
   for (const b of finalAddBindings) {
     patchedConfig = addBinding(patchedConfig, b.binding);
+    patchedConfig = ensureChannelAllowlisted(patchedConfig, b.binding);
     openClawBindings.push(b.binding);
   }
 

@@ -18,6 +18,8 @@ import {
   classifyBindings,
   resolveSelectedBindings,
   isBareChannel,
+  expandCompoundChannel,
+  ensureChannelAllowlisted,
 } from '../../src/core/config-patcher.js';
 import type { OpenClawBinding } from '../../src/types/state.js';
 import type { Binding } from '../../src/types/manifest.js';
@@ -619,6 +621,187 @@ describe('config-patcher', () => {
       const result = resolveSelectedBindings(classified);
       expect(result).toHaveLength(1);
       expect(result[0].match.channel).toBe('slack');
+    });
+  });
+
+  // ─── expandCompoundChannel ────────────────────────────────────
+  describe('expandCompoundChannel', () => {
+    it('expands discord:<id> into channel + peer', () => {
+      const result = expandCompoundChannel({ channel: 'discord:1473055080470155425' });
+      expect(result.channel).toBe('discord');
+      expect(result.peer).toEqual({ kind: 'channel', id: '1473055080470155425' });
+    });
+
+    it('expands slack:#ops into channel + peer', () => {
+      const result = expandCompoundChannel({ channel: 'slack:#ops' });
+      expect(result.channel).toBe('slack');
+      expect(result.peer).toEqual({ kind: 'channel', id: '#ops' });
+    });
+
+    it('expands telegram:12345 into channel + peer', () => {
+      const result = expandCompoundChannel({ channel: 'telegram:12345' });
+      expect(result.channel).toBe('telegram');
+      expect(result.peer).toEqual({ kind: 'channel', id: '12345' });
+    });
+
+    it('does not expand bare channel names (no colon)', () => {
+      const result = expandCompoundChannel({ channel: 'discord' });
+      expect(result.channel).toBe('discord');
+      expect(result.peer).toBeUndefined();
+    });
+
+    it('does not expand if peer is already set', () => {
+      const result = expandCompoundChannel({
+        channel: 'discord:1234',
+        peer: { kind: 'direct', id: '9999' },
+      });
+      expect(result.channel).toBe('discord:1234');
+      expect(result.peer).toEqual({ kind: 'direct', id: '9999' });
+    });
+
+    it('preserves other match fields during expansion', () => {
+      const result = expandCompoundChannel({
+        channel: 'discord:1234',
+        guildId: 'g-100',
+        accountId: 'acct-1',
+      });
+      expect(result.channel).toBe('discord');
+      expect(result.peer).toEqual({ kind: 'channel', id: '1234' });
+      expect(result.guildId).toBe('g-100');
+      expect(result.accountId).toBe('acct-1');
+    });
+
+    it('handles empty scope after colon — no expansion', () => {
+      const result = expandCompoundChannel({ channel: 'discord:' });
+      expect(result.channel).toBe('discord:');
+      expect(result.peer).toBeUndefined();
+    });
+
+    it('handles non-string channel — returns as-is', () => {
+      const result = expandCompoundChannel({ channel: 42 as unknown as string });
+      expect(result.channel).toBe(42);
+    });
+  });
+
+  // ─── ensureChannelAllowlisted ─────────────────────────────────
+  describe('ensureChannelAllowlisted', () => {
+    it('adds discord channel to all configured guilds', () => {
+      const config: Record<string, unknown> = {
+        channels: {
+          discord: {
+            guilds: {
+              'guild-1': { slug: 'my-guild' },
+              'guild-2': { slug: 'other-guild' },
+            },
+          },
+        },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: { channel: 'discord', peer: { kind: 'channel', id: '1473055080470155425' } },
+      };
+      ensureChannelAllowlisted(config, binding);
+
+      const guild1 = (config.channels as any).discord.guilds['guild-1'];
+      const guild2 = (config.channels as any).discord.guilds['guild-2'];
+      expect(guild1.channels['1473055080470155425']).toEqual({ allow: true });
+      expect(guild2.channels['1473055080470155425']).toEqual({ allow: true });
+    });
+
+    it('targets specific guild when guildId is in the binding match', () => {
+      const config: Record<string, unknown> = {
+        channels: {
+          discord: {
+            guilds: {
+              'guild-1': { slug: 'my-guild' },
+              'guild-2': { slug: 'other-guild' },
+            },
+          },
+        },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: {
+          channel: 'discord',
+          peer: { kind: 'channel', id: '1234' },
+          guildId: 'guild-1',
+        },
+      };
+      ensureChannelAllowlisted(config, binding);
+
+      const guild1 = (config.channels as any).discord.guilds['guild-1'];
+      const guild2 = (config.channels as any).discord.guilds['guild-2'];
+      expect(guild1.channels['1234']).toEqual({ allow: true });
+      expect(guild2.channels).toBeUndefined(); // Not touched
+    });
+
+    it('does not overwrite existing channel config', () => {
+      const config: Record<string, unknown> = {
+        channels: {
+          discord: {
+            guilds: {
+              'guild-1': {
+                channels: {
+                  '1234': { allow: true, requireMention: false, users: ['admin'] },
+                },
+              },
+            },
+          },
+        },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: { channel: 'discord', peer: { kind: 'channel', id: '1234' } },
+      };
+      ensureChannelAllowlisted(config, binding);
+
+      const entry = (config.channels as any).discord.guilds['guild-1'].channels['1234'];
+      expect(entry).toEqual({ allow: true, requireMention: false, users: ['admin'] });
+    });
+
+    it('no-ops for non-discord channels', () => {
+      const config: Record<string, unknown> = {
+        channels: {
+          slack: { enabled: true },
+        },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: { channel: 'slack', peer: { kind: 'channel', id: '#ops' } },
+      };
+      const before = JSON.stringify(config);
+      ensureChannelAllowlisted(config, binding);
+      expect(JSON.stringify(config)).toBe(before);
+    });
+
+    it('no-ops when no guilds are configured', () => {
+      const config: Record<string, unknown> = {
+        channels: { discord: { enabled: true } },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: { channel: 'discord', peer: { kind: 'channel', id: '1234' } },
+      };
+      const before = JSON.stringify(config);
+      ensureChannelAllowlisted(config, binding);
+      expect(JSON.stringify(config)).toBe(before);
+    });
+
+    it('no-ops when binding has no peer', () => {
+      const config: Record<string, unknown> = {
+        channels: {
+          discord: {
+            guilds: { 'guild-1': {} },
+          },
+        },
+      };
+      const binding: OpenClawBinding = {
+        agentId: 'ns-bot',
+        match: { channel: 'discord' },
+      };
+      const before = JSON.stringify(config);
+      ensureChannelAllowlisted(config, binding);
+      expect(JSON.stringify(config)).toBe(before);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { bindingsEqual, pruneMatchObject } from './config-patcher.js';
+import { bindingsEqual, pruneMatchObject, expandCompoundChannel } from './config-patcher.js';
 import { interpolate } from './template-interpolator.js';
 import type { FormationState, OpenClawBinding, CronJobState } from '../types/state.js';
 import type { ReefManifest, Binding, CronJob as ManifestCron } from '../types/manifest.js';
@@ -131,6 +131,11 @@ export function computeMigrationPlan(
     .map((b) => {
       const pruned = pruneMatchObject(b.match as unknown as Record<string, unknown>);
       return { ...b, match: pruned as unknown as Binding['match'] };
+    })
+    .map((b) => {
+      // Expand compound "type:scope" channel values into channel + peer
+      const expanded = expandCompoundChannel(b.match as unknown as Record<string, unknown>);
+      return { ...b, match: expanded as unknown as Binding['match'] };
     })
     .filter((b) => b.match.channel.trim() !== '' && !matchHasUnresolved(b.match));
 

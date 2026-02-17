@@ -36,7 +36,8 @@ describe('agents-md-generator', () => {
     expect(md).toContain('**researcher**');
     expect(md).toContain('`ns-researcher`');
     expect(md).toContain('Researches things');
-    expect(md).toContain('Send a message by addressing the agent by name.');
+    expect(md).toContain('sessions_spawn');
+    expect(md).toContain('Do NOT use `sessions_send` for first contact');
   });
 
   it('generates markdown with multiple agents listed', () => {

@@ -308,6 +308,93 @@ function canonicalJson(obj: unknown): string {
   return '{' + sorted.join(',') + '}';
 }
 
+// ─── Compound channel expansion ─────────────────────────────
+
+/**
+ * Detects `type:scope` values in `match.channel` and expands them into
+ * the proper match-object format (`channel` + `peer`).
+ *
+ * Example: `{ channel: "discord:1473055080470155425" }` becomes
+ * `{ channel: "discord", peer: { kind: "channel", id: "1473055080470155425" } }`.
+ *
+ * Only expands when `match.peer` is not already set — if the manifest
+ * explicitly declares a peer, the compound expansion is skipped.
+ */
+export function expandCompoundChannel(
+  match: Record<string, unknown>,
+): Record<string, unknown> {
+  const channel = match.channel;
+  if (typeof channel !== 'string') return match;
+
+  const colonIdx = channel.indexOf(':');
+  if (colonIdx <= 0) return match; // No colon or starts with colon — not compound
+
+  // Don't expand if peer is already explicitly set
+  if (match.peer && typeof match.peer === 'object') return match;
+
+  const channelType = channel.slice(0, colonIdx).trim();
+  const scope = channel.slice(colonIdx + 1).trim();
+
+  if (!channelType || !scope) return match;
+
+  return {
+    ...match,
+    channel: channelType,
+    peer: { kind: 'channel', id: scope },
+  };
+}
+
+// ─── Channel allowlist management ───────────────────────────
+
+/**
+ * Ensures that a binding's target channel is added to the channel
+ * provider's allowlist in the OpenClaw config.
+ *
+ * Currently handles Discord guild channel allowlists:
+ * - If the binding targets `discord` with a `peer.id`, adds
+ *   `channels.discord.guilds.<guildId>.channels.<peerId> = { allow: true }`
+ * - If `guildId` is in the binding match, targets that guild specifically
+ * - Otherwise, adds to ALL configured guilds
+ * - Never overwrites existing channel config (preserves custom settings)
+ * - No-ops if no guilds are configured
+ */
+export function ensureChannelAllowlisted(
+  config: Record<string, unknown>,
+  binding: OpenClawBinding,
+): Record<string, unknown> {
+  const channel = binding.match.channel?.trim().toLowerCase();
+  if (channel !== 'discord') return config;
+
+  const peerId = binding.match.peer?.id?.trim();
+  if (!peerId) return config;
+
+  const channels = config.channels as Record<string, unknown> | undefined;
+  if (!channels || typeof channels !== 'object') return config;
+
+  const discord = channels.discord as Record<string, unknown> | undefined;
+  if (!discord || typeof discord !== 'object') return config;
+
+  const guilds = discord.guilds as Record<string, Record<string, unknown>> | undefined;
+  if (!guilds || typeof guilds !== 'object') return config;
+
+  const targetGuildId = binding.match.guildId?.trim();
+
+  for (const [guildId, guildEntry] of Object.entries(guilds)) {
+    if (targetGuildId && guildId !== targetGuildId) continue;
+    if (!guildEntry || typeof guildEntry !== 'object') continue;
+
+    if (!guildEntry.channels) guildEntry.channels = {};
+    const guildChannels = guildEntry.channels as Record<string, unknown>;
+
+    // Don't overwrite existing channel config — it may have custom settings
+    if (guildChannels[peerId] !== undefined) continue;
+
+    guildChannels[peerId] = { allow: true };
+  }
+
+  return config;
+}
+
 // ─── Match object utilities ─────────────────────────────────
 
 /**

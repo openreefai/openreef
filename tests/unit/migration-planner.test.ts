@@ -334,9 +334,10 @@ describe('computeMigrationPlan', () => {
   // ── Binding variable interpolation ──
 
   it('resolved binding matches state — no binding delta', () => {
+    // State uses expanded format (as written by the installer after compound expansion)
     const state = makeState({
       bindings: [
-        { agentId: 'testns-triage', match: { channel: 'slack:#ops' } },
+        { agentId: 'testns-triage', match: { channel: 'slack', peer: { kind: 'channel', id: '#ops' } } },
       ],
     });
     const manifest = {
@@ -364,9 +365,10 @@ describe('computeMigrationPlan', () => {
   });
 
   it('resolved binding differs from state — remove + add', () => {
+    // State uses expanded format (as written by the installer after compound expansion)
     const state = makeState({
       bindings: [
-        { agentId: 'testns-triage', match: { channel: 'slack:#ops' } },
+        { agentId: 'testns-triage', match: { channel: 'slack', peer: { kind: 'channel', id: '#ops' } } },
       ],
     });
     const manifest = {
@@ -392,7 +394,10 @@ describe('computeMigrationPlan', () => {
     expect(plan.bindings).toHaveLength(2);
     expect(plan.bindings.find((b) => b.type === 'remove')).toBeDefined();
     expect(plan.bindings.find((b) => b.type === 'add')).toBeDefined();
-    expect(plan.bindings.find((b) => b.type === 'add')!.binding.match.channel).toBe('telegram:12345');
+    // Compound "telegram:12345" is expanded into channel + peer
+    const addedBinding = plan.bindings.find((b) => b.type === 'add')!.binding;
+    expect(addedBinding.match.channel).toBe('telegram');
+    expect(addedBinding.match.peer).toEqual({ kind: 'channel', id: '12345' });
   });
 
   it('unresolved binding is dropped — produces remove for state binding', () => {

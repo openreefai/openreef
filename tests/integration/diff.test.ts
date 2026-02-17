@@ -217,10 +217,10 @@ describe('reef diff', () => {
   });
 
   it('no binding diff when variable resolves to same value as state', async () => {
-    // State has a literal resolved binding
+    // State has the expanded binding format (as written by installer after compound expansion)
     const state = makeState({
       bindings: [
-        { agentId: 'testns-helper', match: { channel: 'slack:#ops' } },
+        { agentId: 'testns-helper', match: { channel: 'slack', peer: { kind: 'channel', id: '#ops' } } },
       ],
     });
     await writeState(state);
