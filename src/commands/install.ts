@@ -783,7 +783,9 @@ async function _install(
       workspace: resolveWorkspacePath(agentId),
       model: agentDef.model,
       tools: agentDef.tools as Record<string, unknown> | undefined,
-      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
+      // Note: manifest sandbox (network/filesystem) is declarative intent and
+      // does not map 1:1 to OpenClaw's sandbox config schema (mode/workspaceAccess/scope).
+      // Omit until a proper translation layer exists.
     });
   }
 

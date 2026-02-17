@@ -493,16 +493,14 @@ async function _update(
       workspace: resolveWorkspacePath(change.agentId),
       model: agentDef.model,
       tools: agentDef.tools as Record<string, unknown> | undefined,
-      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     });
   }
-  // Update existing agents (reconcile model/tools/sandbox changes)
+  // Update existing agents (reconcile model/tools changes)
   for (const change of plan.agents.filter((a) => a.type === 'update')) {
     const agentDef = manifest.agents[change.slug];
     patchedConfig = updateAgentEntry(patchedConfig, change.agentId, {
       model: agentDef.model,
       tools: agentDef.tools as Record<string, unknown> | undefined,
-      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     });
   }
   for (const b of finalAddBindings) {
