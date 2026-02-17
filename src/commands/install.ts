@@ -157,6 +157,7 @@ async function _install(
       interactive: !options.yes,
       cliOverrides: parseSets(options.set),
       noEnv: options.noEnv,
+      allowExternalCommands: !options.yes,
     },
   );
 
