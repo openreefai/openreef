@@ -43,6 +43,10 @@ import { displayMigrationPlan } from '../utils/plan-display.js';
 import { enforceLockfile } from '../core/skills-registry.js';
 import { installSkills } from '../core/skills-installer.js';
 import { checkOpenClawCompatibility } from '../core/compat-check.js';
+import {
+  normalizeAgentTools,
+  buildSubagentConfig,
+} from '../core/agent-runtime-config.js';
 import { icons, header, label, value, table } from '../utils/output.js';
 import type { ReefManifest } from '../types/manifest.js';
 import type {
@@ -465,7 +469,7 @@ async function _update(
       workspace: workspacePath,
       files: deployedFiles,
       model: agentDef.model,
-      configTools: agentDef.tools as Record<string, unknown> | undefined,
+      configTools: normalizeAgentTools(agentDef.tools),
       configSandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     };
   }
@@ -490,20 +494,29 @@ async function _update(
   // Add new agents and bindings
   for (const change of plan.agents.filter((a) => a.type === 'add')) {
     const agentDef = manifest.agents[change.slug];
+    const normalizedTools = normalizeAgentTools(agentDef.tools);
+    const subagents = buildSubagentConfig(manifest, change.slug, idMap);
     patchedConfig = addAgentEntry(patchedConfig, {
       id: change.agentId,
       name: change.slug,
       workspace: resolveWorkspacePath(change.agentId),
       model: agentDef.model,
-      tools: agentDef.tools as Record<string, unknown> | undefined,
+      tools: normalizedTools,
+      subagents,
     });
   }
-  // Update existing agents (reconcile model/tools changes)
-  for (const change of plan.agents.filter((a) => a.type === 'update')) {
+  // Update existing agents for runtime-config reconciliation. This includes
+  // unchanged agents so topology/tool changes still refresh agent policy.
+  for (const change of plan.agents.filter(
+    (a) => a.type === 'update' || a.type === 'unchanged',
+  )) {
     const agentDef = manifest.agents[change.slug];
+    const normalizedTools = normalizeAgentTools(agentDef.tools);
+    const subagents = buildSubagentConfig(manifest, change.slug, idMap);
     patchedConfig = updateAgentEntry(patchedConfig, change.agentId, {
       model: agentDef.model,
-      tools: agentDef.tools as Record<string, unknown> | undefined,
+      tools: normalizedTools,
+      subagents,
     });
   }
   for (const b of finalAddBindings) {

@@ -15,6 +15,18 @@ describe('tool-names', () => {
       expect(normalizeToolName('web-search')).toBe('web_search');
     });
 
+    it('normalizes "spawn_session" to "sessions_spawn"', () => {
+      expect(normalizeToolName('spawn_session')).toBe('sessions_spawn');
+    });
+
+    it('normalizes "session_spawn" to "sessions_spawn"', () => {
+      expect(normalizeToolName('session_spawn')).toBe('sessions_spawn');
+    });
+
+    it('normalizes "spawn-session" to "sessions_spawn"', () => {
+      expect(normalizeToolName('spawn-session')).toBe('sessions_spawn');
+    });
+
     it('returns "read" unchanged (already canonical)', () => {
       expect(normalizeToolName('read')).toBe('read');
     });
@@ -53,6 +65,10 @@ describe('tool-names', () => {
       expect(isRecognizedTool('bash')).toBe(true);
     });
 
+    it('recognizes "spawn_session" via alias mapping', () => {
+      expect(isRecognizedTool('spawn_session')).toBe(true);
+    });
+
     it('recognizes "read" as canonical', () => {
       expect(isRecognizedTool('read')).toBe(true);
     });
@@ -81,6 +97,10 @@ describe('tool-names', () => {
   describe('getAliasTarget', () => {
     it('returns "exec" for alias "bash"', () => {
       expect(getAliasTarget('bash')).toBe('exec');
+    });
+
+    it('returns "sessions_spawn" for alias "spawn_session"', () => {
+      expect(getAliasTarget('spawn_session')).toBe('sessions_spawn');
     });
 
     it('returns "web_search" for alias "web-search"', () => {

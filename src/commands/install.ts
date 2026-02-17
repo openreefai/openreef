@@ -44,6 +44,10 @@ import { listFiles } from '../utils/fs.js';
 import { enforceLockfile } from '../core/skills-registry.js';
 import { installSkills } from '../core/skills-installer.js';
 import { checkOpenClawCompatibility } from '../core/compat-check.js';
+import {
+  normalizeAgentTools,
+  buildSubagentConfig,
+} from '../core/agent-runtime-config.js';
 import { icons, header, label, value, table } from '../utils/output.js';
 import type { ReefManifest, Binding, BindingMatch } from '../types/manifest.js';
 import type {
@@ -775,7 +779,7 @@ async function _install(
       workspace: workspacePath,
       files: deployedFiles,
       model: agentDef.model,
-      configTools: agentDef.tools as Record<string, unknown> | undefined,
+      configTools: normalizeAgentTools(agentDef.tools),
       configSandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     };
   }
@@ -786,12 +790,15 @@ async function _install(
 
   for (const [slug, agentDef] of Object.entries(manifest.agents)) {
     const agentId = idValidation.ids.get(slug)!;
+    const normalizedTools = normalizeAgentTools(agentDef.tools);
+    const subagents = buildSubagentConfig(manifest, slug, idValidation.ids);
     patchedConfig = addAgentEntry(patchedConfig, {
       id: agentId,
       name: slug,
       workspace: resolveWorkspacePath(agentId),
       model: agentDef.model,
-      tools: agentDef.tools as Record<string, unknown> | undefined,
+      tools: normalizedTools,
+      subagents,
       // Note: manifest sandbox (network/filesystem) is declarative intent and
       // does not map 1:1 to OpenClaw's sandbox config schema (mode/workspaceAccess/scope).
       // Omit until a proper translation layer exists.

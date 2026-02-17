@@ -34,6 +34,15 @@ const ALIASES: Record<string, string> = {
   'sessions-list': 'sessions_list',
   'sessions-history': 'sessions_history',
   'sessions-spawn': 'sessions_spawn',
+  'send_session': 'sessions_send',
+  'session_send': 'sessions_send',
+  'list_sessions': 'sessions_list',
+  'session_list': 'sessions_list',
+  'history_sessions': 'sessions_history',
+  'session_history': 'sessions_history',
+  'spawn_session': 'sessions_spawn',
+  'session_spawn': 'sessions_spawn',
+  'spawn-session': 'sessions_spawn',
   'session-status': 'session_status',
 };
 

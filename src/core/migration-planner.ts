@@ -1,5 +1,6 @@
 import { bindingsEqual, pruneMatchObject, expandCompoundChannel } from './config-patcher.js';
 import { interpolate } from './template-interpolator.js';
+import { normalizeAgentTools } from './agent-runtime-config.js';
 import type { FormationState, OpenClawBinding, CronJobState } from '../types/state.js';
 import type { ReefManifest, Binding, CronJob as ManifestCron } from '../types/manifest.js';
 
@@ -91,9 +92,9 @@ export function computeMigrationPlan(
         configChanged = true;
       }
 
-      // Compare tools
+      // Compare tools (normalize manifest side to match stored format)
       const oldTools = oldAgent.configTools;
-      const newTools = newAgent.tools as Record<string, unknown> | undefined;
+      const newTools = normalizeAgentTools(newAgent.tools);
       if (JSON.stringify(oldTools) !== JSON.stringify(newTools)) {
         configChanged = true;
       }

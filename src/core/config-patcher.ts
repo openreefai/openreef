@@ -16,6 +16,7 @@ export interface AgentEntry {
   identity?: Record<string, unknown>;
   sandbox?: Record<string, unknown>;
   tools?: Record<string, unknown>;
+  subagents?: Record<string, unknown>;
 }
 
 export interface ConfigData {
@@ -111,6 +112,15 @@ export function addAgentEntry(
     if (agent.model !== undefined) existing.model = agent.model;
     if (agent.tools !== undefined) existing.tools = agent.tools;
     if (agent.sandbox !== undefined) existing.sandbox = agent.sandbox;
+    if (agent.subagents !== undefined) {
+      const current =
+        typeof existing.subagents === 'object' &&
+        existing.subagents !== null &&
+        !Array.isArray(existing.subagents)
+          ? (existing.subagents as Record<string, unknown>)
+          : {};
+      existing.subagents = { ...current, ...agent.subagents };
+    }
     return config;
   }
 
@@ -134,6 +144,7 @@ export function addAgentEntry(
   if (agent.identity) entry.identity = agent.identity;
   if (agent.sandbox) entry.sandbox = agent.sandbox;
   if (agent.tools) entry.tools = agent.tools;
+  if (agent.subagents) entry.subagents = agent.subagents;
 
   list.push(entry);
   return config;
@@ -276,7 +287,12 @@ export function recomputeAgentToAgent(
 export function updateAgentEntry(
   config: Record<string, unknown>,
   agentId: string,
-  updates: { model?: string; tools?: Record<string, unknown>; sandbox?: Record<string, unknown> },
+  updates: {
+    model?: string;
+    tools?: Record<string, unknown>;
+    sandbox?: Record<string, unknown>;
+    subagents?: Record<string, unknown>;
+  },
 ): Record<string, unknown> {
   const list = ensureAgentsList(config);
   const normalizedId = agentId.trim().toLowerCase();
@@ -289,6 +305,15 @@ export function updateAgentEntry(
   if (updates.model !== undefined) entry.model = updates.model;
   if (updates.tools !== undefined) entry.tools = updates.tools;
   if (updates.sandbox !== undefined) entry.sandbox = updates.sandbox;
+  if (updates.subagents !== undefined) {
+    const current =
+      typeof entry.subagents === 'object' &&
+      entry.subagents !== null &&
+      !Array.isArray(entry.subagents)
+        ? (entry.subagents as Record<string, unknown>)
+        : {};
+    entry.subagents = { ...current, ...updates.subagents };
+  }
 
   return config;
 }

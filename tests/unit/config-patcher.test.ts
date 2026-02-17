@@ -878,5 +878,31 @@ describe('config-patcher', () => {
       expect(agent.tools.allow).toContain('sessions_spawn');
       expect(agent.tools.allow).toContain('web_fetch');
     });
+
+    it('merges subagents.allowAgents without dropping existing subagent model', () => {
+      const config: Record<string, unknown> = {
+        agents: {
+          list: [
+            {
+              id: 'reef-forge-architect',
+              name: 'architect',
+              workspace: '/tmp/ws',
+              subagents: { model: 'anthropic/claude-opus-4-6' },
+            },
+          ],
+        },
+      };
+
+      const result = updateAgentEntry(config, 'reef-forge-architect', {
+        subagents: { allowAgents: ['reef-forge-researcher', 'reef-forge-builder'] },
+      });
+
+      const list = (result.agents as Record<string, unknown>).list as Record<string, unknown>[];
+      const agent = list.find((a) => a.id === 'reef-forge-architect')!;
+      expect(agent.subagents).toEqual({
+        model: 'anthropic/claude-opus-4-6',
+        allowAgents: ['reef-forge-researcher', 'reef-forge-builder'],
+      });
+    });
   });
 });
