@@ -213,4 +213,95 @@ describe('variable-resolver', () => {
       }
     });
   });
+
+  describe('hint integration', () => {
+    it('does not call hints when variable resolved by --set', async () => {
+      const hintsModule = await import('../../src/core/variable-hints.js');
+      const hintSpy = vi.spyOn(hintsModule, 'getVariableHint');
+
+      const variables: Record<string, Variable> = {
+        INTERACTION_CHANNEL: { type: 'string', required: true },
+      };
+      await resolveVariables(variables, tempDir, {
+        cliOverrides: { INTERACTION_CHANNEL: 'slack:#ops' },
+        interactive: true,
+      });
+
+      expect(hintSpy).not.toHaveBeenCalled();
+      hintSpy.mockRestore();
+    });
+
+    it('does not call hints when --yes (non-interactive)', async () => {
+      const variables: Record<string, Variable> = {
+        INTERACTION_CHANNEL: { type: 'string', required: true },
+      };
+      const result = await resolveVariables(variables, tempDir, {
+        interactive: false,
+      });
+
+      expect(result.missing).toContain('INTERACTION_CHANNEL');
+    });
+
+    it('does not call hints when .env provides value', async () => {
+      await writeFile(join(tempDir, '.env'), 'INTERACTION_CHANNEL=slack:#ops\n');
+
+      const hintsModule = await import('../../src/core/variable-hints.js');
+      const hintSpy = vi.spyOn(hintsModule, 'getVariableHint');
+
+      const variables: Record<string, Variable> = {
+        INTERACTION_CHANNEL: { type: 'string', required: true },
+      };
+      await resolveVariables(variables, tempDir, { interactive: true });
+
+      expect(hintSpy).not.toHaveBeenCalled();
+      hintSpy.mockRestore();
+    });
+
+    it('uses options.env for env var lookup instead of process.env', async () => {
+      const variables: Record<string, Variable> = {
+        MY_VAR: { type: 'string', required: true },
+      };
+      const result = await resolveVariables(variables, tempDir, {
+        env: { MY_VAR: 'from-options-env' },
+      });
+      expect(result.resolved.MY_VAR).toBe('from-options-env');
+    });
+
+    it('optional hinted var is prompted when hint matches', async () => {
+      const hintsModule = await import('../../src/core/variable-hints.js');
+      const hintSpy = vi.spyOn(hintsModule, 'getVariableHint').mockResolvedValue({
+        kind: 'channel',
+        recentChannels: [{ value: 'slack:#ops', label: 'slack:#ops (used by test)' }],
+        configuredTypes: [],
+      });
+
+      const channelModule = await import('../../src/core/channel-prompt.js');
+      const promptSpy = vi.spyOn(channelModule, 'promptChannel').mockResolvedValue('slack:#ops');
+
+      const variables: Record<string, Variable> = {
+        BRIEFING_CHANNEL: { type: 'string', required: false },
+      };
+      const result = await resolveVariables(variables, tempDir, {
+        interactive: true,
+        env: { OPENCLAW_STATE_DIR: tempDir },
+      });
+      expect(result.resolved.BRIEFING_CHANNEL).toBe('slack:#ops');
+      expect(hintSpy).toHaveBeenCalled();
+
+      hintSpy.mockRestore();
+      promptSpy.mockRestore();
+    });
+
+    it('optional var with no hint is silently skipped (existing behavior)', async () => {
+      const variables: Record<string, Variable> = {
+        OPTIONAL_VAR: { type: 'string', required: false },
+      };
+      const result = await resolveVariables(variables, tempDir, {
+        interactive: true,
+        env: { OPENCLAW_STATE_DIR: tempDir },
+      });
+      expect(result.resolved.OPTIONAL_VAR).toBeUndefined();
+      expect(result.missing).toHaveLength(0);
+    });
+  });
 });
