@@ -163,6 +163,40 @@ describe('promptChannel: configure-new action', () => {
     expect(result).toBe('slack:#ops');
   });
 
+  it('calls reloadConfig after configure-new and renders refreshed types', async () => {
+    const refreshedHint: ChannelHint = {
+      kind: 'channel',
+      recentChannels: baseHint.recentChannels,
+      configuredTypes: ['telegram'],
+    };
+    const reloadConfig = vi.fn().mockResolvedValue(refreshedHint);
+
+    // First render: user picks configure-new
+    // Second render (after reload): user picks the newly-appeared telegram type
+    vi.mocked(select)
+      .mockResolvedValueOnce('configure-new')
+      .mockResolvedValueOnce('type:telegram');
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+    vi.mocked(input).mockResolvedValueOnce('#alerts');
+
+    const result = await promptChannel(
+      'INTERACTION_CHANNEL',
+      baseConfig,
+      baseHint,
+      { ...ctxWithExternal, reloadConfig },
+    );
+
+    expect(reloadConfig).toHaveBeenCalledOnce();
+    expect(result).toBe('telegram:#alerts');
+
+    // Verify the second select call included the refreshed configured type
+    const secondSelectCall = vi.mocked(select).mock.calls[1][0] as { choices: unknown[] };
+    const choiceValues = secondSelectCall.choices
+      .filter((c: unknown) => typeof c === 'object' && c !== null && 'value' in c)
+      .map((c: unknown) => (c as { value: string }).value);
+    expect(choiceValues).toContain('type:telegram');
+  });
+
   it('returns to menu when openclaw command throws', async () => {
     // First call: --version succeeds (binary detection)
     // Second call: channels add throws
