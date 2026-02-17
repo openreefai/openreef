@@ -5,6 +5,17 @@ import { tmpdir } from 'node:os';
 import { resolveVariables } from '../../src/core/variable-resolver.js';
 import type { Variable } from '../../src/types/manifest.js';
 
+// Top-level mock for @inquirer/prompts — ESM namespaces are non-configurable,
+// so vi.spyOn on dynamic imports fails. This mock is safe for all tests:
+// non-interactive paths never reach the import, and interactive tests that
+// use promptChannel (channel path) bypass @inquirer/prompts entirely.
+vi.mock('@inquirer/prompts', () => ({
+  input: vi.fn(),
+  password: vi.fn(),
+}));
+
+import { input } from '@inquirer/prompts';
+
 let tempDir: string;
 
 beforeEach(async () => {
@@ -302,6 +313,71 @@ describe('variable-resolver', () => {
       });
       expect(result.resolved.OPTIONAL_VAR).toBeUndefined();
       expect(result.missing).toHaveLength(0);
+    });
+
+    it('dispatches channel hint to promptChannel and resolves result', async () => {
+      const hintsModule = await import('../../src/core/variable-hints.js');
+      const hintSpy = vi.spyOn(hintsModule, 'getVariableHint').mockResolvedValue({
+        kind: 'channel' as const,
+        recentChannels: [{ value: 'slack:#dispatch-test', label: 'slack:#dispatch-test (used by mock)' }],
+        configuredTypes: [],
+      });
+      const channelModule = await import('../../src/core/channel-prompt.js');
+      const promptSpy = vi.spyOn(channelModule, 'promptChannel').mockResolvedValue('slack:#dispatch-test');
+
+      const variables: Record<string, Variable> = {
+        INTERACTION_CHANNEL: {
+          type: 'string',
+          required: true,
+          description: 'Primary contact channel',
+        },
+      };
+
+      const result = await resolveVariables(variables, tempDir, {
+        interactive: true,
+        env: { OPENCLAW_STATE_DIR: tempDir },
+      });
+
+      expect(result.resolved.INTERACTION_CHANNEL).toBe('slack:#dispatch-test');
+      expect(promptSpy).toHaveBeenCalledWith(
+        'INTERACTION_CHANNEL',
+        expect.objectContaining({ type: 'string', required: true }),
+        expect.objectContaining({ kind: 'channel' }),
+        expect.objectContaining({ allowExternalCommands: false }),
+      );
+      expect(result.missing).toHaveLength(0);
+
+      hintSpy.mockRestore();
+      promptSpy.mockRestore();
+    });
+
+    it('dispatches prefill hint with default value and resolves user input', async () => {
+      const hintsModule = await import('../../src/core/variable-hints.js');
+      const hintSpy = vi.spyOn(hintsModule, 'getVariableHint').mockResolvedValue({
+        kind: 'prefill' as const,
+        defaultValue: 'jfeinblum',
+        source: 'GitHub CLI',
+      });
+
+      // Use top-level vi.mock'd input (ESM namespaces are non-configurable)
+      vi.mocked(input).mockResolvedValue('jfeinblum');
+
+      const variables: Record<string, Variable> = {
+        GITHUB_USERNAME: { type: 'string', required: true },
+      };
+
+      const result = await resolveVariables(variables, tempDir, {
+        interactive: true,
+        env: { OPENCLAW_STATE_DIR: tempDir },
+      });
+
+      expect(result.resolved.GITHUB_USERNAME).toBe('jfeinblum');
+      expect(input).toHaveBeenCalledWith(
+        expect.objectContaining({ default: 'jfeinblum' }),
+      );
+
+      hintSpy.mockRestore();
+      vi.mocked(input).mockReset();
     });
   });
 });
