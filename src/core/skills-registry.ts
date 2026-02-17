@@ -152,6 +152,13 @@ export async function verifyLockfileIntegrity(
   const cacheDir = skillsCacheDir(options);
 
   for (const [name, entry] of Object.entries(lockfile.skills)) {
+    // Skip integrity verification for entries without integrity hashes or non-downloadable URIs
+    if (entry.integrity == null) {
+      continue;
+    }
+    if (!entry.resolved.startsWith('https://') && !entry.resolved.startsWith('http://')) {
+      continue;
+    }
     try {
       const disambig = hashString(`${name}:${entry.version}`).slice(0, 8);
       const cacheName = `${name}-${entry.version}-${disambig}.tar.gz`;
@@ -203,7 +210,12 @@ export async function enforceLockfile(
   }
 
   const parsed = JSON.parse(lockfileRaw) as Record<string, unknown>;
-  const lockfile: Lockfile = { skills: (parsed.skills ?? {}) as Record<string, LockfileEntry> };
+  // Support both formats: top-level { skills } (reef lock output) and nested { dependencies: { skills } } (reef-forge scaffolded)
+  const rawSkills =
+    (parsed.skills as Record<string, LockfileEntry> | undefined) ??
+    ((parsed.dependencies as Record<string, unknown> | undefined)?.skills as Record<string, LockfileEntry> | undefined) ??
+    {};
+  const lockfile: Lockfile = { skills: rawSkills };
 
   // Warn about extra entries in lockfile (skills not in manifest)
   for (const lockedName of Object.keys(lockfile.skills)) {
@@ -224,15 +236,21 @@ export async function enforceLockfile(
     }
 
     // Validate entry format
-    if (!SHA256_HEX_RE.test(entry.integrity)) {
+    if (entry.integrity != null && !SHA256_HEX_RE.test(entry.integrity)) {
       throw new LockfileViolationError(
         `Malformed integrity for "${name}" in lockfile: expected "sha256-<64 hex chars>", got "${entry.integrity}"`,
       );
     }
+    if (entry.integrity == null) {
+      console.warn(
+        `Warning: No integrity hash for skill "${name}" in lockfile. Run \`reef lock\` to add supply-chain verification.`,
+      );
+    }
 
-    if (!entry.resolved.startsWith('https://') && !entry.resolved.startsWith('http://')) {
+    const validSchemes = ['https://', 'http://', 'clawhub:'];
+    if (!validSchemes.some((s) => entry.resolved.startsWith(s))) {
       throw new LockfileViolationError(
-        `Malformed resolved URL for "${name}" in lockfile: only https:// and http:// schemes are allowed, got "${entry.resolved}"`,
+        `Malformed resolved URI for "${name}" in lockfile: expected https://, http://, or clawhub: scheme, got "${entry.resolved}"`,
       );
     }
 

@@ -390,6 +390,78 @@ describe('enforceLockfile', () => {
     warnSpy.mockRestore();
   });
 
+  it('reads skills from nested dependencies.skills format', async () => {
+    const artifactContent = Buffer.from('artifact');
+    const integrity = `sha256-${createHash('sha256').update(artifactContent).digest('hex')}`;
+
+    await writeLockfile({
+      dependencies: {
+        skills: {
+          'web-search': {
+            version: '1.0.0',
+            resolved: validResolved,
+            integrity,
+          },
+        },
+      },
+    });
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      arrayBuffer: () =>
+        Promise.resolve(
+          artifactContent.buffer.slice(
+            artifactContent.byteOffset,
+            artifactContent.byteOffset + artifactContent.byteLength,
+          ),
+        ),
+    } as unknown as Response);
+
+    await enforceLockfile(
+      tempDir,
+      { 'web-search': '^1.0.0' },
+      { env: { OPENCLAW_STATE_DIR: tempDir } as NodeJS.ProcessEnv },
+    );
+  });
+
+  it('accepts clawhub: resolved scheme', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await writeLockfile({
+      skills: {
+        'web-search': {
+          version: '1.0.0',
+          resolved: 'clawhub:web-search@1.0.0',
+        },
+      },
+    });
+
+    await enforceLockfile(tempDir, { 'web-search': '^1.0.0' });
+
+    warnSpy.mockRestore();
+  });
+
+  it('warns but does not throw when integrity is missing', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await writeLockfile({
+      skills: {
+        'web-search': {
+          version: '1.0.0',
+          resolved: validResolved,
+        },
+      },
+    });
+
+    await enforceLockfile(tempDir, { 'web-search': '^1.0.0' });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No integrity hash'),
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it('missing lockfile produces warning about `reef lock`', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
