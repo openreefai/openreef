@@ -79,7 +79,33 @@ export function computeMigrationPlan(
         }
       }
 
-      if (changedFiles.length > 0) {
+      // Check for manifest-level agent config changes (model, tools, sandbox)
+      const oldAgent = state.agents[slug];
+      const newAgent = manifest.agents[slug];
+      let configChanged = false;
+
+      // Compare model
+      const oldModel = oldAgent.model;
+      const newModel = newAgent.model;
+      if (JSON.stringify(oldModel) !== JSON.stringify(newModel)) {
+        configChanged = true;
+      }
+
+      // Compare tools
+      const oldTools = oldAgent.configTools;
+      const newTools = newAgent.tools as Record<string, unknown> | undefined;
+      if (JSON.stringify(oldTools) !== JSON.stringify(newTools)) {
+        configChanged = true;
+      }
+
+      // Compare sandbox
+      const oldSandbox = oldAgent.configSandbox;
+      const newSandbox = newAgent.sandbox as Record<string, unknown> | undefined;
+      if (JSON.stringify(oldSandbox) !== JSON.stringify(newSandbox)) {
+        configChanged = true;
+      }
+
+      if (changedFiles.length > 0 || configChanged) {
         agents.push({ slug, agentId, type: 'update', changedFiles });
       } else {
         agents.push({ slug, agentId, type: 'unchanged' });

@@ -775,6 +775,8 @@ async function _install(
       workspace: workspacePath,
       files: deployedFiles,
       model: agentDef.model,
+      configTools: agentDef.tools as Record<string, unknown> | undefined,
+      configSandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     };
   }
 

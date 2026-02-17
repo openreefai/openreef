@@ -331,6 +331,117 @@ describe('computeMigrationPlan', () => {
     expect(plan.a2a.find((e) => e.to === 'researcher')?.type).toBe('add');
   });
 
+  it('detects tools-only config change without file changes', () => {
+    const state = makeState({
+      agents: {
+        triage: {
+          id: 'testns-triage',
+          slug: 'triage',
+          workspace: '/tmp/ws-triage',
+          files: ['SOUL.md'],
+          configTools: { allow: ['web_search', 'read'] },
+        },
+      },
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+          tools: { allow: ['web_search', 'web_fetch', 'read', 'sessions_spawn'] },
+        },
+      },
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    // Same file hash — no file changes
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes);
+    expect(plan.isEmpty).toBe(false);
+    const triageChange = plan.agents.find((a) => a.slug === 'triage');
+    expect(triageChange?.type).toBe('update');
+  });
+
+  it('detects model-only config change without file changes', () => {
+    const state = makeState({
+      agents: {
+        triage: {
+          id: 'testns-triage',
+          slug: 'triage',
+          workspace: '/tmp/ws-triage',
+          files: ['SOUL.md'],
+          model: 'anthropic/claude-sonnet-4-5-20250929',
+        },
+      },
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+          model: 'anthropic/claude-opus-4-6',
+        },
+      },
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes);
+    expect(plan.isEmpty).toBe(false);
+    expect(plan.agents.find((a) => a.slug === 'triage')?.type).toBe('update');
+  });
+
+  it('unchanged when config and files both match', () => {
+    const state = makeState({
+      agents: {
+        triage: {
+          id: 'testns-triage',
+          slug: 'triage',
+          workspace: '/tmp/ws-triage',
+          files: ['SOUL.md'],
+          model: 'anthropic/claude-sonnet-4-5-20250929',
+          configTools: { allow: ['web_search', 'read'] },
+        },
+      },
+    });
+    const manifest = {
+      reef: '1.0' as const,
+      type: 'solo' as const,
+      name: 'test',
+      version: '1.0.0',
+      description: 'Test',
+      namespace: 'testns',
+      agents: {
+        triage: {
+          source: 'agents/triage',
+          description: 'Triage',
+          model: 'anthropic/claude-sonnet-4-5-20250929',
+          tools: { allow: ['web_search', 'read'] },
+        },
+      },
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
+    };
+    const idMap = new Map([['triage', 'testns-triage']]);
+    const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
+
+    const plan = computeMigrationPlan(state, manifest, 'testns', idMap, newHashes);
+    expect(plan.agents.find((a) => a.slug === 'triage')?.type).toBe('unchanged');
+  });
+
   // ── Binding variable interpolation ──
 
   it('resolved binding matches state — no binding delta', () => {
