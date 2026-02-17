@@ -103,8 +103,14 @@ export function addAgentEntry(
   const list = ensureAgentsList(config);
   const normalizedId = agent.id.trim().toLowerCase();
 
-  // Idempotent: skip if agent with same id exists (normalized comparison)
-  if (list.some((a) => String((a as Record<string, unknown>).id).trim().toLowerCase() === normalizedId)) {
+  // If agent already exists, reconcile model/tools (don't duplicate)
+  const existing = list.find(
+    (a) => String((a as Record<string, unknown>).id).trim().toLowerCase() === normalizedId,
+  ) as Record<string, unknown> | undefined;
+  if (existing) {
+    if (agent.model !== undefined) existing.model = agent.model;
+    if (agent.tools !== undefined) existing.tools = agent.tools;
+    if (agent.sandbox !== undefined) existing.sandbox = agent.sandbox;
     return config;
   }
 

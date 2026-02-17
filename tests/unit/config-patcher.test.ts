@@ -20,6 +20,7 @@ import {
   isBareChannel,
   expandCompoundChannel,
   ensureChannelAllowlisted,
+  updateAgentEntry,
 } from '../../src/core/config-patcher.js';
 import type { OpenClawBinding } from '../../src/types/state.js';
 import type { Binding } from '../../src/types/manifest.js';
@@ -802,6 +803,80 @@ describe('config-patcher', () => {
       const before = JSON.stringify(config);
       ensureChannelAllowlisted(config, binding);
       expect(JSON.stringify(config)).toBe(before);
+    });
+  });
+
+  describe('updateAgentEntry', () => {
+    it('updates tools on an existing agent', () => {
+      const config: Record<string, unknown> = {
+        agents: {
+          list: [
+            {
+              id: 'reef-forge-architect',
+              name: 'architect',
+              workspace: '/tmp/ws',
+              model: 'anthropic/claude-opus-4-6',
+              tools: { allow: ['web_search', 'read', 'write', 'sessions_send'] },
+            },
+          ],
+        },
+      };
+
+      const result = updateAgentEntry(config, 'reef-forge-architect', {
+        model: 'anthropic/claude-opus-4-6',
+        tools: { allow: ['web_search', 'web_fetch', 'read', 'write', 'sessions_spawn', 'sessions_send', 'sessions_list'] },
+      });
+
+      const list = (result.agents as Record<string, unknown>).list as Record<string, unknown>[];
+      const agent = list.find((a) => a.id === 'reef-forge-architect')!;
+      expect(agent.tools).toEqual({
+        allow: ['web_search', 'web_fetch', 'read', 'write', 'sessions_spawn', 'sessions_send', 'sessions_list'],
+      });
+    });
+
+    it('returns config unchanged when agent not found', () => {
+      const config: Record<string, unknown> = {
+        agents: {
+          list: [
+            { id: 'some-other-agent', name: 'other', tools: { allow: ['read'] } },
+          ],
+        },
+      };
+
+      const result = updateAgentEntry(config, 'nonexistent-agent', {
+        tools: { allow: ['write'] },
+      });
+
+      const list = (result.agents as Record<string, unknown>).list as Record<string, unknown>[];
+      expect(list[0].tools).toEqual({ allow: ['read'] });
+    });
+
+    it('persists through writeConfig round-trip', async () => {
+      const configPath = join(tempDir, 'update-test.json');
+      const config = {
+        agents: {
+          list: [
+            {
+              id: 'reef-forge-architect',
+              name: 'architect',
+              workspace: '/tmp/ws',
+              tools: { allow: ['web_search', 'sessions_send'] },
+            },
+          ],
+        },
+      };
+      await writeFile(configPath, JSON.stringify(config));
+
+      const { config: loaded } = await readConfig(configPath);
+      const patched = updateAgentEntry(loaded, 'reef-forge-architect', {
+        tools: { allow: ['web_search', 'web_fetch', 'sessions_spawn', 'sessions_send'] },
+      });
+      await writeConfig(configPath, patched, { silent: true });
+
+      const raw = JSON.parse(await readFile(configPath, 'utf-8'));
+      const agent = raw.agents.list.find((a: Record<string, unknown>) => a.id === 'reef-forge-architect');
+      expect(agent.tools.allow).toContain('sessions_spawn');
+      expect(agent.tools.allow).toContain('web_fetch');
     });
   });
 });
