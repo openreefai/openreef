@@ -399,16 +399,29 @@ export function ensureChannelAllowlisted(
   const peerId = binding.match.peer?.id?.trim();
   if (!peerId) return config;
 
-  const channels = config.channels as Record<string, unknown> | undefined;
-  if (!channels || typeof channels !== 'object') return config;
+  // Ensure channels.discord.guilds structure exists
+  if (!config.channels || typeof config.channels !== 'object') {
+    config.channels = {};
+  }
+  const channels = config.channels as Record<string, unknown>;
 
-  const discord = channels.discord as Record<string, unknown> | undefined;
-  if (!discord || typeof discord !== 'object') return config;
+  if (!channels.discord || typeof channels.discord !== 'object') {
+    channels.discord = {};
+  }
+  const discord = channels.discord as Record<string, unknown>;
 
-  const guilds = discord.guilds as Record<string, Record<string, unknown>> | undefined;
-  if (!guilds || typeof guilds !== 'object') return config;
+  if (!discord.guilds || typeof discord.guilds !== 'object') {
+    discord.guilds = {};
+  }
+  const guilds = discord.guilds as Record<string, Record<string, unknown>>;
 
   const targetGuildId = binding.match.guildId?.trim();
+
+  // If no guilds exist at all, use wildcard "*" so the channel is reachable
+  const guildKeys = Object.keys(guilds);
+  if (guildKeys.length === 0) {
+    guilds['*'] = {};
+  }
 
   for (const [guildId, guildEntry] of Object.entries(guilds)) {
     if (targetGuildId && guildId !== targetGuildId) continue;
@@ -420,7 +433,7 @@ export function ensureChannelAllowlisted(
     // Don't overwrite existing channel config — it may have custom settings
     if (guildChannels[peerId] !== undefined) continue;
 
-    guildChannels[peerId] = { allow: true };
+    guildChannels[peerId] = { allow: true, requireMention: false };
   }
 
   return config;

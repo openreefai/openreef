@@ -705,8 +705,8 @@ describe('config-patcher', () => {
 
       const guild1 = (config.channels as any).discord.guilds['guild-1'];
       const guild2 = (config.channels as any).discord.guilds['guild-2'];
-      expect(guild1.channels['1473055080470155425']).toEqual({ allow: true });
-      expect(guild2.channels['1473055080470155425']).toEqual({ allow: true });
+      expect(guild1.channels['1473055080470155425']).toEqual({ allow: true, requireMention: false });
+      expect(guild2.channels['1473055080470155425']).toEqual({ allow: true, requireMention: false });
     });
 
     it('targets specific guild when guildId is in the binding match', () => {
@@ -732,7 +732,7 @@ describe('config-patcher', () => {
 
       const guild1 = (config.channels as any).discord.guilds['guild-1'];
       const guild2 = (config.channels as any).discord.guilds['guild-2'];
-      expect(guild1.channels['1234']).toEqual({ allow: true });
+      expect(guild1.channels['1234']).toEqual({ allow: true, requireMention: false });
       expect(guild2.channels).toBeUndefined(); // Not touched
     });
 
@@ -775,7 +775,7 @@ describe('config-patcher', () => {
       expect(JSON.stringify(config)).toBe(before);
     });
 
-    it('no-ops when no guilds are configured', () => {
+    it('creates wildcard guild when no guilds are configured', () => {
       const config: Record<string, unknown> = {
         channels: { discord: { enabled: true } },
       };
@@ -783,9 +783,9 @@ describe('config-patcher', () => {
         agentId: 'ns-bot',
         match: { channel: 'discord', peer: { kind: 'channel', id: '1234' } },
       };
-      const before = JSON.stringify(config);
       ensureChannelAllowlisted(config, binding);
-      expect(JSON.stringify(config)).toBe(before);
+      const guilds = (config.channels as any).discord.guilds;
+      expect(guilds['*'].channels['1234']).toEqual({ allow: true, requireMention: false });
     });
 
     it('no-ops when binding has no peer', () => {

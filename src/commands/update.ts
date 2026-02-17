@@ -26,6 +26,7 @@ import {
   extractChannelType,
   isBareChannel,
   getConfiguredChannels,
+  expandCompoundChannel,
   ensureChannelAllowlisted,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
@@ -186,7 +187,7 @@ async function _update(
       await saveState(patchedState);
     }
 
-    // Always reconcile agent runtime config (tools/model/sandbox) even when
+    // Always reconcile agent runtime config and bindings even when
     // source files haven't changed — ensures OpenClaw config stays in sync.
     const { config: currentConfig } = await readConfig();
     let reconciledConfig = currentConfig;
@@ -199,6 +200,19 @@ async function _update(
         tools: normalizedTools,
         subagents,
       });
+    }
+    // Re-expand and allowlist existing bindings (fixes stale compact format)
+    for (const binding of existingState.bindings) {
+      const expandedMatch = expandCompoundChannel(
+        binding.match as unknown as Record<string, unknown>,
+      ) as unknown as OpenClawBinding['match'];
+      const expandedBinding: OpenClawBinding = { ...binding, match: expandedMatch };
+      // If expansion changed the match, remove the old compact binding
+      if (JSON.stringify(expandedBinding.match) !== JSON.stringify(binding.match)) {
+        reconciledConfig = removeBinding(reconciledConfig, binding);
+      }
+      reconciledConfig = addBinding(reconciledConfig, expandedBinding);
+      reconciledConfig = ensureChannelAllowlisted(reconciledConfig, expandedBinding);
     }
     const { path: configPath } = await readConfig();
     await writeConfig(configPath, reconciledConfig, { silent: true });
@@ -539,9 +553,14 @@ async function _update(
     });
   }
   for (const b of finalAddBindings) {
-    patchedConfig = addBinding(patchedConfig, b.binding);
-    patchedConfig = ensureChannelAllowlisted(patchedConfig, b.binding);
-    openClawBindings.push(b.binding);
+    // Expand compound "type:scope" channel values into channel + peer
+    const expandedMatch = expandCompoundChannel(
+      b.binding.match as unknown as Record<string, unknown>,
+    ) as unknown as OpenClawBinding['match'];
+    const expandedBinding: OpenClawBinding = { ...b.binding, match: expandedMatch };
+    patchedConfig = addBinding(patchedConfig, expandedBinding);
+    patchedConfig = ensureChannelAllowlisted(patchedConfig, expandedBinding);
+    openClawBindings.push(expandedBinding);
   }
 
   // Update a2a — recompute from full topology on any change
