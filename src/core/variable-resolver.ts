@@ -74,17 +74,23 @@ export async function resolveVariables(
       } else if (hint?.kind === 'prefill') {
         const { input } = await import('@inquirer/prompts');
         console.log(`  ℹ GitHub: authenticated as ${hint.defaultValue} (via ${hint.source})`);
+        if (config.description) {
+          console.log(`  ${name}: ${config.description}`);
+        }
         const answer = await input({
-          message: `${name}${config.description ? ` (${config.description})` : ''}:`,
+          message: `${name}:`,
           default: hint.defaultValue,
         });
         resolved[name] = answer;
       } else if (config.required) {
         // Existing behavior — plain input/password for required vars only
         const { input, password } = await import('@inquirer/prompts');
+        if (config.description) {
+          console.log(`  ${name}: ${config.description}`);
+        }
         const promptFn = config.sensitive ? password : input;
         const answer = await promptFn({
-          message: `${name}${config.description ? ` (${config.description})` : ''}:`,
+          message: `${name}:`,
         });
         resolved[name] = answer;
       }
