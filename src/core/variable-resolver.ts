@@ -44,13 +44,7 @@ export async function resolveVariables(
   }
 
   // Build hint context once (shared across all variables)
-  const hintContext: VariableHintContext = {
-    formationPath: formationDir,
-    env,
-    interactive: !!options.interactive,
-    allowExternalCommands: !!options.allowExternalCommands,
-    allowConfigMutation: false,
-  };
+  const hintContext: VariableHintContext = { env };
 
   for (const [name, config] of Object.entries(variables)) {
     // Precedence: CLI > .env > env > defaults
@@ -71,6 +65,11 @@ export async function resolveVariables(
         resolved[name] = await promptChannel(name, config, hint, {
           allowExternalCommands: !!options.allowExternalCommands,
           isTTY: !!process.stdout?.isTTY,
+          reloadConfig: async () => {
+            const refreshed = await getVariableHint(name, config, hintContext);
+            if (refreshed?.kind === 'channel') return refreshed;
+            return hint; // fallback to original if refresh fails
+          },
         });
       } else if (hint?.kind === 'prefill') {
         const { input } = await import('@inquirer/prompts');

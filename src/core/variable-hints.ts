@@ -10,11 +10,7 @@ import {
 // ── Types ──
 
 export interface VariableHintContext {
-  formationPath: string;
   env: NodeJS.ProcessEnv;
-  interactive: boolean;
-  allowExternalCommands: boolean;
-  allowConfigMutation: boolean;
 }
 
 export interface ChannelHint {

@@ -12,15 +12,11 @@ let ctx: VariableHintContext;
 beforeEach(async () => {
   tempHome = await mkdtemp(join(tmpdir(), 'reef-hints-test-'));
   ctx = {
-    formationPath: join(tempHome, 'formation'),
     env: {
       ...process.env,
       OPENCLAW_STATE_DIR: tempHome,
       OPENCLAW_CONFIG_PATH: join(tempHome, 'openclaw.json'),
     },
-    interactive: true,
-    allowExternalCommands: false,
-    allowConfigMutation: false,
   };
   await writeFile(
     join(tempHome, 'openclaw.json'),
