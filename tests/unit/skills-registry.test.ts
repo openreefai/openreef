@@ -456,7 +456,7 @@ describe('enforceLockfile', () => {
     await enforceLockfile(tempDir, { 'web-search': '^1.0.0' });
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No integrity hash'),
+      expect.stringContaining('missing integrity hashes'),
     );
 
     warnSpy.mockRestore();

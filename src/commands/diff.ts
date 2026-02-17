@@ -27,6 +27,7 @@ export async function diff(
       namespace: options.namespace,
       set: options.set,
       noEnv: options.noEnv,
+      yes: false,
     });
 
     if (result.plan.isEmpty) {

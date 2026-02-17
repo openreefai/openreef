@@ -227,6 +227,7 @@ export async function enforceLockfile(
   }
 
   // Check each declared skill
+  const missingIntegrity: string[] = [];
   for (const [name, range] of Object.entries(skills)) {
     const entry = lockfile.skills[name];
     if (!entry) {
@@ -242,9 +243,7 @@ export async function enforceLockfile(
       );
     }
     if (entry.integrity == null) {
-      console.warn(
-        `Warning: No integrity hash for skill "${name}" in lockfile. Run \`reef lock\` to add supply-chain verification.`,
-      );
+      missingIntegrity.push(name);
     }
 
     const validSchemes = ['https://', 'http://', 'clawhub:'];
@@ -268,6 +267,12 @@ export async function enforceLockfile(
         `Locked version ${entry.version} for "${name}" does not satisfy declared range "${range}". Run \`reef lock\` to update.`,
       );
     }
+  }
+
+  if (missingIntegrity.length > 0) {
+    console.warn(
+      `Warning: ${missingIntegrity.length} skill(s) missing integrity hashes in lockfile (${missingIntegrity.join(', ')}). Run \`reef lock\` to add supply-chain verification.`,
+    );
   }
 
   // Verify integrity

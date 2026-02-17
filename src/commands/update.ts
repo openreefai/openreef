@@ -110,6 +110,7 @@ async function _update(
       namespace: options.namespace,
       set: options.set,
       noEnv: options.noEnv,
+      yes: options.yes,
     });
   } catch (err) {
     if (err instanceof DiffValidationError) {

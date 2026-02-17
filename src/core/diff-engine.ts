@@ -53,7 +53,7 @@ export class DiffValidationError extends Error {
 
 export async function computeFormationDiff(
   formationPath: string,
-  options: { namespace?: string; set?: string[]; noEnv?: boolean },
+  options: { namespace?: string; set?: string[]; noEnv?: boolean; yes?: boolean },
 ): Promise<DiffResult> {
   // 1. Parse + validate manifest
   const manifest = await loadManifest(formationPath);
@@ -102,13 +102,13 @@ export async function computeFormationDiff(
     manifest.variables ?? {},
     formationPath,
     {
-      interactive: false,
+      interactive: !options.yes,
       cliOverrides: parseSets(options.set),
       noEnv: options.noEnv,
     },
   );
 
-  // State fallback for non-sensitive values
+  // State fallback for non-sensitive values (sensitive values are stored as $VAR refs)
   for (const name of Object.keys(manifest.variables ?? {})) {
     if (resolvedVars[name] !== undefined) continue;
     const stateVal = existingState.variables[name];
