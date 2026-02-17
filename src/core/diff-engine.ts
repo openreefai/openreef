@@ -108,16 +108,25 @@ export async function computeFormationDiff(
     },
   );
 
-  // State fallback for non-sensitive values (sensitive values are stored as $VAR refs)
+  // State fallback: non-sensitive vars use stored value; sensitive vars ($-prefixed)
+  // are marked as "deployed" — the runtime already has the real value.
+  const deployedSensitiveVars = new Set<string>();
   for (const name of Object.keys(manifest.variables ?? {})) {
     if (resolvedVars[name] !== undefined) continue;
     const stateVal = existingState.variables[name];
-    if (stateVal !== undefined && !stateVal.startsWith('$')) {
-      resolvedVars[name] = stateVal;
+    if (stateVal !== undefined) {
+      if (stateVal.startsWith('$')) {
+        // Sensitive var already deployed — don't require re-entry
+        deployedSensitiveVars.add(name);
+      } else {
+        resolvedVars[name] = stateVal;
+      }
     }
   }
 
-  const stillMissing = missing.filter((name) => resolvedVars[name] === undefined);
+  const stillMissing = missing.filter(
+    (name) => resolvedVars[name] === undefined && !deployedSensitiveVars.has(name),
+  );
   if (stillMissing.length > 0) {
     throw new DiffValidationError(
       `Missing required variables: ${stillMissing.join(', ')}. Use --set KEY=VALUE or set them in .env / environment.`,
@@ -137,11 +146,22 @@ export async function computeFormationDiff(
         const srcFile = join(sourceDir, relativePath);
         const rawBytes = await readFile(srcFile);
         let content: Buffer;
+        const hashKey = `${agentId}:${relativePath}`;
         if (isBinaryBuffer(rawBytes)) {
           content = rawBytes;
         } else {
           const text = rawBytes.toString('utf-8');
           if (TOKEN_RE.test(text)) {
+            // Check if this file references any deployed-sensitive vars
+            const usesSensitiveVar = [...deployedSensitiveVars].some(
+              (v) => text.includes(`{{${v}}}`),
+            );
+            if (usesSensitiveVar && existingState.fileHashes[hashKey]) {
+              // Can't recompute hash without the real value — use stored hash.
+              // If the template structure changed, user must provide the value via --set.
+              newFileHashes[hashKey] = existingState.fileHashes[hashKey];
+              continue;
+            }
             const agentVars = {
               ...resolvedVars,
               tools: buildToolsList(agentDef.tools?.allow, manifest.dependencies?.skills),
@@ -151,7 +171,7 @@ export async function computeFormationDiff(
             content = Buffer.from(text, 'utf-8');
           }
         }
-        newFileHashes[`${agentId}:${relativePath}`] = computeFileHash(content);
+        newFileHashes[hashKey] = computeFileHash(content);
       }
     } catch {
       // Source dir may not exist for this agent yet

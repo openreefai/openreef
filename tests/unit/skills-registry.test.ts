@@ -441,7 +441,7 @@ describe('enforceLockfile', () => {
     warnSpy.mockRestore();
   });
 
-  it('warns but does not throw when integrity is missing', async () => {
+  it('silently accepts missing integrity (no warning, no throw)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await writeLockfile({
@@ -455,9 +455,11 @@ describe('enforceLockfile', () => {
 
     await enforceLockfile(tempDir, { 'web-search': '^1.0.0' });
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('missing integrity hashes'),
+    // Should not produce integrity-related warnings
+    const integrityWarns = warnSpy.mock.calls.filter(
+      (args) => String(args[0]).includes('integrity'),
     );
+    expect(integrityWarns).toHaveLength(0);
 
     warnSpy.mockRestore();
   });

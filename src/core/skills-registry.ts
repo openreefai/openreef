@@ -269,11 +269,8 @@ export async function enforceLockfile(
     }
   }
 
-  if (missingIntegrity.length > 0) {
-    console.warn(
-      `Warning: ${missingIntegrity.length} skill(s) missing integrity hashes in lockfile (${missingIntegrity.join(', ')}). Run \`reef lock\` to add supply-chain verification.`,
-    );
-  }
+  // Silently skip integrity verification when hashes are absent —
+  // ClawHub may not yet provide them. No warning noise.
 
   // Verify integrity
   const verification = await verifyLockfileIntegrity(lockfile, options);
