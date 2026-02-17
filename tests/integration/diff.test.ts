@@ -232,7 +232,7 @@ describe('reef diff', () => {
         INTERACTION_CHANNEL: { type: 'string' as const },
       },
       bindings: [
-        { channel: '{{INTERACTION_CHANNEL}}', agent: 'helper' },
+        { match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'helper' },
       ],
     };
     await writeFile(

@@ -68,7 +68,7 @@ describe('schema-validator', () => {
         },
       },
       agentToAgent: { worker: [] },
-      bindings: [{ channel: 'slack:#test', agent: 'worker' }],
+      bindings: [{ match: { channel: 'slack:#test' }, agent: 'worker' }],
       cron: [
         {
           schedule: '0 9 * * *',

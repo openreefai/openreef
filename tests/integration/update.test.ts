@@ -212,7 +212,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+        bindings: [{ match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
@@ -241,8 +241,8 @@ describe('reef update', () => {
           },
         },
         bindings: [
-          { channel: 'telegram:group-123', agent: 'triage' },
-          { channel: 'slack:#support', agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
+          { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
         ],
       }),
     );
@@ -254,13 +254,13 @@ describe('reef update', () => {
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'telegram:group-123',
+      channel: 'telegram', peer: { kind: 'group', id: 'group-123' },
     });
 
     // Assert: state has only scoped telegram binding
     const state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(1);
-    expect(state?.bindings[0].match.channel).toBe('telegram:group-123');
+    expect(state?.bindings[0].match.channel).toBe('telegram');
   });
 
   it('update --yes skips bare net-new bindings by default', async () => {
@@ -281,7 +281,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+        bindings: [{ match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
@@ -310,8 +310,8 @@ describe('reef update', () => {
           },
         },
         bindings: [
-          { channel: 'telegram:group-123', agent: 'triage' },
-          { channel: 'telegram', agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
+          { match: { channel: 'telegram' }, agent: 'triage' },
         ],
       }),
     );
@@ -323,7 +323,7 @@ describe('reef update', () => {
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'telegram:group-123',
+      channel: 'telegram', peer: { kind: 'group', id: 'group-123' },
     });
   });
 
@@ -345,7 +345,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+        bindings: [{ match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
@@ -374,8 +374,8 @@ describe('reef update', () => {
           },
         },
         bindings: [
-          { channel: 'telegram:group-123', agent: 'triage' },
-          { channel: 'telegram', agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
+          { match: { channel: 'telegram' }, agent: 'triage' },
         ],
       }),
     );
@@ -390,8 +390,12 @@ describe('reef update', () => {
     const channels = bindings.map(
       (b) => ((b as Record<string, unknown>).match as Record<string, unknown>).channel,
     );
-    expect(channels).toContain('telegram:group-123');
     expect(channels).toContain('telegram');
+    // Verify both bare and scoped are present
+    const hasBare = bindings.some((b) => !((b as Record<string, unknown>).match as Record<string, unknown>).peer);
+    const hasScoped = bindings.some((b) => !!((b as Record<string, unknown>).match as Record<string, unknown>).peer);
+    expect(hasBare).toBe(true);
+    expect(hasScoped).toBe(true);
   });
 
   it('update --yes wires net-new scoped bindings when no channels section (backward compat)', async () => {
@@ -412,7 +416,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: 'telegram:group-123', agent: 'triage' }],
+        bindings: [{ match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' }],
       }),
     );
     await install(formationDir, { yes: true });
@@ -435,8 +439,8 @@ describe('reef update', () => {
           },
         },
         bindings: [
-          { channel: 'telegram:group-123', agent: 'triage' },
-          { channel: 'slack:#support', agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
+          { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
         ],
       }),
     );
@@ -467,6 +471,8 @@ describe('reef update', () => {
         namespace: 'testns',
         variables: {
           INTERACTION_CHANNEL: { type: 'string' },
+          INTERACTION_PEER_KIND: { type: 'string' },
+          INTERACTION_PEER_ID: { type: 'string' },
         },
         agents: {
           triage: {
@@ -475,16 +481,16 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+        bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' }],
       }),
     );
-    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=slack\nINTERACTION_PEER_KIND=channel\nINTERACTION_PEER_ID="#ops"');
     await install(formationDir, { yes: true });
 
     // Verify initial binding was wired
     let state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(1);
-    expect(state?.bindings[0].match.channel).toBe('slack:#ops');
+    expect(state?.bindings[0].match.channel).toBe('slack');
 
     // Update with same variable value — should be no-op for bindings
     await update(formationDir, { yes: true });
@@ -493,7 +499,7 @@ describe('reef update', () => {
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'slack:#ops',
+      channel: 'slack', peer: { kind: 'channel', id: '#ops' },
     });
   });
 
@@ -510,6 +516,8 @@ describe('reef update', () => {
         namespace: 'testns',
         variables: {
           INTERACTION_CHANNEL: { type: 'string' },
+          INTERACTION_PEER_KIND: { type: 'string' },
+          INTERACTION_PEER_ID: { type: 'string' },
         },
         agents: {
           triage: {
@@ -518,14 +526,14 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+        bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' }],
       }),
     );
-    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=slack\nINTERACTION_PEER_KIND=channel\nINTERACTION_PEER_ID="#ops"');
     await install(formationDir, { yes: true });
 
     // Now change the variable value
-    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=telegram:12345');
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=telegram\nINTERACTION_PEER_KIND=group\nINTERACTION_PEER_ID=12345');
 
     // Bump version so update is not just a version-only change
     await writeFile(
@@ -539,6 +547,8 @@ describe('reef update', () => {
         namespace: 'testns',
         variables: {
           INTERACTION_CHANNEL: { type: 'string' },
+          INTERACTION_PEER_KIND: { type: 'string' },
+          INTERACTION_PEER_ID: { type: 'string' },
         },
         agents: {
           triage: {
@@ -547,24 +557,24 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+        bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' }],
       }),
     );
 
     await update(formationDir, { yes: true });
 
-    // Binding should now be telegram:12345
+    // Binding should now be telegram
     const { config: updatedConfig } = await readConfig(join(tempHome, 'openclaw.json'));
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'telegram:12345',
+      channel: 'telegram', peer: { kind: 'group', id: '12345' },
     });
 
     // State should reflect the new binding
     const state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(1);
-    expect(state?.bindings[0].match.channel).toBe('telegram:12345');
+    expect(state?.bindings[0].match.channel).toBe('telegram');
   });
 
   it('update treats unresolved binding variable as absent (removes stale binding)', async () => {
@@ -582,6 +592,8 @@ describe('reef update', () => {
         namespace: 'testns',
         variables: {
           INTERACTION_CHANNEL: { type: 'string', sensitive: true },
+          INTERACTION_PEER_KIND: { type: 'string', sensitive: true },
+          INTERACTION_PEER_ID: { type: 'string', sensitive: true },
         },
         agents: {
           triage: {
@@ -590,16 +602,16 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+        bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' }],
       }),
     );
-    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL="slack:#ops"');
+    await writeFile(join(formationDir, '.env'), 'INTERACTION_CHANNEL=slack\nINTERACTION_PEER_KIND=channel\nINTERACTION_PEER_ID="#ops"');
     await install(formationDir, { yes: true });
 
     // Verify initial binding was wired
     let state = await loadState('testns', 'test-formation');
     expect(state?.bindings).toHaveLength(1);
-    expect(state?.bindings[0].match.channel).toBe('slack:#ops');
+    expect(state?.bindings[0].match.channel).toBe('slack');
 
     // Remove the .env file so variable is unresolved, bump version
     await rm(join(formationDir, '.env'));
@@ -614,6 +626,8 @@ describe('reef update', () => {
         namespace: 'testns',
         variables: {
           INTERACTION_CHANNEL: { type: 'string', sensitive: true },
+          INTERACTION_PEER_KIND: { type: 'string', sensitive: true },
+          INTERACTION_PEER_ID: { type: 'string', sensitive: true },
         },
         agents: {
           triage: {
@@ -622,7 +636,7 @@ describe('reef update', () => {
             model: 'anthropic/claude-sonnet-4-5',
           },
         },
-        bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+        bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' }],
       }),
     );
 

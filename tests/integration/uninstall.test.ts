@@ -86,7 +86,7 @@ describe('reef uninstall', () => {
         },
         bindings: [
           {
-            channel: 'discord:general',
+            match: { channel: 'discord:general' },
             agent: 'triage',
           },
         ],

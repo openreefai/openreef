@@ -528,8 +528,8 @@ describe('config-patcher', () => {
   // ─── classifyBindings ────────────────────────────────────────────
   describe('classifyBindings', () => {
     const bindings: Binding[] = [
-      { channel: 'slack:#support', agent: 'triage' },
-      { channel: 'telegram', agent: 'triage' },
+      { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
+      { match: { channel: 'telegram' }, agent: 'triage' },
     ];
 
     it('marks all as unknown when configuredChannels is null', () => {
@@ -550,7 +550,7 @@ describe('config-patcher', () => {
 
     it('extracts channel type from compound strings', () => {
       const result = classifyBindings(
-        [{ channel: 'discord:general', agent: 'bot' }],
+        [{ match: { channel: 'discord', peer: { kind: 'channel', id: 'general' } }, agent: 'bot' }],
         new Set(['discord']),
       );
       expect(result[0].channelType).toBe('discord');
@@ -559,8 +559,8 @@ describe('config-patcher', () => {
 
     it('sets isBare correctly', () => {
       const result = classifyBindings(bindings, null);
-      expect(result[0].isBare).toBe(false); // slack:#support — has scope
-      expect(result[1].isBare).toBe(true);  // telegram — bare
+      expect(result[0].isBare).toBe(false); // slack with peer — not bare
+      expect(result[1].isBare).toBe(true);  // telegram without peer — bare
     });
   });
 
@@ -568,35 +568,35 @@ describe('config-patcher', () => {
   describe('resolveSelectedBindings', () => {
     it('keeps configured and unknown, drops unconfigured and bare', () => {
       const classified = [
-        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
-        { binding: { channel: 'discord:general', agent: 'c' }, channelType: 'discord', status: 'unknown' as const, isBare: false },
+        { binding: { match: { channel: 'slack', peer: { kind: 'channel' as const, id: '#support' } }, agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { match: { channel: 'telegram' }, agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
+        { binding: { match: { channel: 'discord', peer: { kind: 'channel' as const, id: 'general' } }, agent: 'c' }, channelType: 'discord', status: 'unknown' as const, isBare: false },
       ];
       const result = resolveSelectedBindings(classified);
       expect(result).toHaveLength(2);
-      expect(result[0].channel).toBe('slack:#support');
-      expect(result[1].channel).toBe('discord:general');
+      expect(result[0].match.channel).toBe('slack');
+      expect(result[1].match.channel).toBe('discord');
     });
 
     it('filters bare bindings by default', () => {
       const classified = [
-        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
+        { binding: { match: { channel: 'slack', peer: { kind: 'channel' as const, id: '#support' } }, agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { match: { channel: 'telegram' }, agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
       ];
       const result = resolveSelectedBindings(classified);
       expect(result).toHaveLength(1);
-      expect(result[0].channel).toBe('slack:#support');
+      expect(result[0].match.channel).toBe('slack');
     });
 
     it('keeps bare bindings with allowChannelShadow', () => {
       const classified = [
-        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
+        { binding: { match: { channel: 'slack', peer: { kind: 'channel' as const, id: '#support' } }, agent: 'a' }, channelType: 'slack', status: 'configured' as const, isBare: false },
+        { binding: { match: { channel: 'telegram' }, agent: 'b' }, channelType: 'telegram', status: 'configured' as const, isBare: true },
       ];
       const result = resolveSelectedBindings(classified, { allowChannelShadow: true });
       expect(result).toHaveLength(2);
-      expect(result[0].channel).toBe('slack:#support');
-      expect(result[1].channel).toBe('telegram');
+      expect(result[0].match.channel).toBe('slack');
+      expect(result[1].match.channel).toBe('telegram');
     });
 
     it('returns empty for empty input', () => {
@@ -605,20 +605,20 @@ describe('config-patcher', () => {
 
     it('returns empty when all are unconfigured', () => {
       const classified = [
-        { binding: { channel: 'slack', agent: 'a' }, channelType: 'slack', status: 'unconfigured' as const, isBare: true },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
+        { binding: { match: { channel: 'slack' }, agent: 'a' }, channelType: 'slack', status: 'unconfigured' as const, isBare: true },
+        { binding: { match: { channel: 'telegram' }, agent: 'b' }, channelType: 'telegram', status: 'unconfigured' as const, isBare: true },
       ];
       expect(resolveSelectedBindings(classified)).toEqual([]);
     });
 
     it('keeps scoped unknown bindings, drops bare unknown', () => {
       const classified = [
-        { binding: { channel: 'slack:#support', agent: 'a' }, channelType: 'slack', status: 'unknown' as const, isBare: false },
-        { binding: { channel: 'telegram', agent: 'b' }, channelType: 'telegram', status: 'unknown' as const, isBare: true },
+        { binding: { match: { channel: 'slack', peer: { kind: 'channel' as const, id: '#support' } }, agent: 'a' }, channelType: 'slack', status: 'unknown' as const, isBare: false },
+        { binding: { match: { channel: 'telegram' }, agent: 'b' }, channelType: 'telegram', status: 'unknown' as const, isBare: true },
       ];
       const result = resolveSelectedBindings(classified);
       expect(result).toHaveLength(1);
-      expect(result[0].channel).toBe('slack:#support');
+      expect(result[0].match.channel).toBe('slack');
     });
   });
 });

@@ -203,7 +203,7 @@ describe('reef install', () => {
         },
         bindings: [
           {
-            channel: 'discord:general',
+            match: { channel: 'discord', peer: { kind: 'channel', id: 'general' } },
             agent: 'triage',
           },
         ],
@@ -222,7 +222,7 @@ describe('reef install', () => {
     expect(bindings).toHaveLength(1);
     expect(bindings[0].agentId).toBe('testns-triage');
     expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'discord:general',
+      'discord',
     );
 
     // Verify bindings in state file
@@ -348,8 +348,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'telegram:group-123', agent: 'triage' },
-          { channel: 'slack:#support', agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
+          { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
         ],
       }),
     );
@@ -365,7 +365,7 @@ describe('reef install', () => {
     const bindings = config.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'telegram:group-123',
+      'telegram',
     );
 
     // State should also have only the scoped telegram binding
@@ -377,7 +377,7 @@ describe('reef install', () => {
     const stateRaw = await readFile(stateFile, 'utf-8');
     const state = JSON.parse(stateRaw);
     expect(state.bindings).toHaveLength(1);
-    expect(state.bindings[0].match.channel).toBe('telegram:group-123');
+    expect(state.bindings[0].match.channel).toBe('telegram');
   });
 
   it('--yes wires all scoped bindings when no channels section (backward compat)', async () => {
@@ -411,8 +411,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'discord:general', agent: 'triage' },
-          { channel: 'slack:#support', agent: 'triage' },
+          { match: { channel: 'discord', peer: { kind: 'channel', id: 'general' } }, agent: 'triage' },
+          { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
         ],
       }),
     );
@@ -431,8 +431,8 @@ describe('reef install', () => {
     const channels = bindings.map(
       (b) => (b.match as Record<string, unknown>).channel,
     );
-    expect(channels).toContain('discord:general');
-    expect(channels).toContain('slack:#support');
+    expect(channels).toContain('discord');
+    expect(channels).toContain('slack');
   });
 
   it('--merge ignores channel availability', async () => {
@@ -457,8 +457,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'slack:#support', agent: 'triage' },
-          { channel: 'telegram:group-123', agent: 'triage' },
+          { match: { channel: 'slack', peer: { kind: 'channel', id: '#support' } }, agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
         ],
       }),
     );
@@ -495,8 +495,8 @@ describe('reef install', () => {
     const channels = bindings.map(
       (b) => (b.match as Record<string, unknown>).channel,
     );
-    expect(channels).toContain('slack:#support');
-    expect(channels).toContain('telegram:group-123');
+    expect(channels).toContain('slack');
+    expect(channels).toContain('telegram');
 
     // State should also have both
     const stateFile = join(
@@ -556,8 +556,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'telegram', agent: 'triage' },
-          { channel: 'telegram:group-123', agent: 'triage' },
+          { match: { channel: 'telegram' }, agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
         ],
       }),
     );
@@ -573,7 +573,7 @@ describe('reef install', () => {
     const bindings = config.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'telegram:group-123',
+      'telegram',
     );
   });
 
@@ -611,8 +611,8 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'telegram', agent: 'triage' },
-          { channel: 'telegram:group-123', agent: 'triage' },
+          { match: { channel: 'telegram' }, agent: 'triage' },
+          { match: { channel: 'telegram', peer: { kind: 'group', id: 'group-123' } }, agent: 'triage' },
         ],
       }),
     );
@@ -627,12 +627,11 @@ describe('reef install', () => {
     const config = JSON.parse(configRaw);
     const bindings = config.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(2);
-
-    const channels = bindings.map(
-      (b) => (b.match as Record<string, unknown>).channel,
-    );
-    expect(channels).toContain('telegram');
-    expect(channels).toContain('telegram:group-123');
+    // Verify both bare and scoped bindings were wired
+    const hasBare = bindings.some((b) => !(b.match as Record<string, unknown>).peer);
+    const hasScoped = bindings.some((b) => !!(b.match as Record<string, unknown>).peer);
+    expect(hasBare).toBe(true);
+    expect(hasScoped).toBe(true);
   });
 
   it('install resolves {{VARIABLE}} in binding channels', async () => {
@@ -649,6 +648,8 @@ describe('reef install', () => {
         variables: {
           MISSION: { type: 'string', default: 'support' },
           INTERACTION_CHANNEL: { type: 'string' },
+          INTERACTION_PEER_KIND: { type: 'string' },
+          INTERACTION_PEER_ID: { type: 'string' },
         },
         agents: {
           triage: {
@@ -658,7 +659,7 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' },
+          { match: { channel: '{{INTERACTION_CHANNEL}}', peer: { kind: '{{INTERACTION_PEER_KIND}}', id: '{{INTERACTION_PEER_ID}}' } }, agent: 'triage' },
         ],
       }),
     );
@@ -666,7 +667,7 @@ describe('reef install', () => {
     // Provide variable via .env file
     await writeFile(
       join(formationDir, '.env'),
-      'INTERACTION_CHANNEL="slack:#ops"',
+      'INTERACTION_CHANNEL=slack\nINTERACTION_PEER_KIND=channel\nINTERACTION_PEER_ID="#ops"',
     );
 
     await install(formationDir, { yes: true });
@@ -680,7 +681,7 @@ describe('reef install', () => {
     const bindings = config.bindings as Record<string, unknown>[];
     expect(bindings).toHaveLength(1);
     expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'slack:#ops',
+      'slack',
     );
 
     // State should also have the resolved binding
@@ -692,7 +693,7 @@ describe('reef install', () => {
     const stateRaw = await readFile(stateFile, 'utf-8');
     const state = JSON.parse(stateRaw);
     expect(state.bindings).toHaveLength(1);
-    expect(state.bindings[0].match.channel).toBe('slack:#ops');
+    expect(state.bindings[0].match.channel).toBe('slack');
   });
 
   it('install drops binding with unresolved {{VARIABLE}}', async () => {
@@ -718,7 +719,7 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' },
+          { match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'triage' },
         ],
       }),
     );
@@ -768,7 +769,7 @@ describe('reef install', () => {
           },
         },
         bindings: [
-          { channel: 'telegram', agent: 'triage' },
+          { match: { channel: 'telegram' }, agent: 'triage' },
         ],
       }),
     );

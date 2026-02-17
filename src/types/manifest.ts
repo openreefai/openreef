@@ -5,6 +5,8 @@ export type {
   AgentSandbox,
   Variable,
   Binding,
+  BindingMatch,
+  BindingPeer,
   CronJob,
   Service,
   Dependencies,

@@ -49,7 +49,7 @@ export function displayMigrationPlan(
     for (const b of plan.bindings) {
       if (b.type === 'add') {
         const channelType = extractChannelType(b.binding.match.channel);
-        const bare = isBareChannel(b.binding.match.channel);
+        const bare = !b.binding.match.peer;
         let annotation = '';
         if (bare) {
           annotation = chalk.dim(' (bare channel — shadows main)');

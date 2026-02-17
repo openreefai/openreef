@@ -171,12 +171,55 @@
       "description": "Channel routing rules.",
       "items": {
         "type": "object",
-        "required": ["channel", "agent"],
+        "required": ["match", "agent"],
         "additionalProperties": false,
         "properties": {
-          "channel": {
-            "type": "string",
-            "description": "Channel identifier."
+          "match": {
+            "type": "object",
+            "description": "Rich match object for OpenClaw routing.",
+            "required": ["channel"],
+            "additionalProperties": false,
+            "properties": {
+              "channel": {
+                "type": "string",
+                "description": "Channel token (e.g., slack, telegram, discord)."
+              },
+              "accountId": {
+                "type": "string",
+                "description": "Specific account, or * for any."
+              },
+              "peer": {
+                "type": "object",
+                "description": "Peer targeting. Both kind and id are required.",
+                "required": ["kind", "id"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "description": "Peer kind (direct, group, channel). May contain {{VARIABLE}} tokens."
+                  },
+                  "id": {
+                    "type": "string",
+                    "description": "Peer identifier (e.g., #ops, 12345)."
+                  }
+                }
+              },
+              "guildId": {
+                "type": "string",
+                "description": "Discord guild ID."
+              },
+              "teamId": {
+                "type": "string",
+                "description": "Slack team ID."
+              },
+              "roles": {
+                "type": "array",
+                "description": "Discord roles — ANY matching role satisfies (overlap semantics).",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "agent": {
             "type": "string",

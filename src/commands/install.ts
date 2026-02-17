@@ -26,6 +26,7 @@ import {
   classifyBindings,
   resolveSelectedBindings,
   isBareChannel,
+  pruneMatchObject,
 } from '../core/config-patcher.js';
 import { GatewayClient, resolveGatewayAuth } from '../core/gateway-client.js';
 import {
@@ -39,8 +40,10 @@ import {
 import { generateAgentsMd } from '../core/agents-md-generator.js';
 import { listFiles } from '../utils/fs.js';
 import { enforceLockfile } from '../core/skills-registry.js';
+import { installSkills } from '../core/skills-installer.js';
+import { checkOpenClawCompatibility } from '../core/compat-check.js';
 import { icons, header, label, value, table } from '../utils/output.js';
-import type { ReefManifest, Binding } from '../types/manifest.js';
+import type { ReefManifest, Binding, BindingMatch } from '../types/manifest.js';
 import type {
   FormationState,
   AgentState,
@@ -57,6 +60,7 @@ export interface InstallOptions {
   noEnv?: boolean;
   dryRun?: boolean;
   allowChannelShadow?: boolean;
+  skipCompat?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
@@ -149,6 +153,38 @@ async function _install(
 
   spinner.succeed('Formation loaded and validated');
 
+  // ── Phase 1b: Compatibility check ──
+  if (manifest.compatibility?.openclaw && !options.skipCompat) {
+    const compatSpinner = ora('Checking OpenClaw compatibility...').start();
+    const compatResult = await checkOpenClawCompatibility(
+      manifest.compatibility.openclaw,
+      {
+        gatewayUrl: options.gatewayUrl,
+        gatewayToken: options.gatewayToken,
+        gatewayPassword: options.gatewayPassword,
+      },
+    );
+
+    if (!compatResult.compatible) {
+      compatSpinner.fail('Compatibility check failed');
+      console.error(`  ${icons.error} ${compatResult.error}`);
+      if (compatResult.openclawVersion) {
+        console.error(
+          `  Running: OpenClaw ${compatResult.openclawVersion} (via ${compatResult.source})`,
+        );
+        console.error(
+          `  Required: ${compatResult.requiredRange}`,
+        );
+      }
+      console.error('  Use --skip-compat to override.');
+      process.exit(1);
+    }
+
+    compatSpinner.succeed(
+      `OpenClaw ${compatResult.openclawVersion} satisfies ${compatResult.requiredRange}`,
+    );
+  }
+
   // ── Phase 2: Variables ──
   const { resolved: resolvedVars, missing } = await resolveVariables(
     manifest.variables ?? {},
@@ -174,16 +210,50 @@ async function _install(
   // Inject built-in variable: namespace
   resolvedVars.namespace = namespace;
 
-  // Resolve {{VARIABLE}} tokens in binding channel values;
+  // Resolve {{VARIABLE}} tokens in binding match fields;
   // drop bindings that still contain unresolved {{...}} tokens (unset optional vars)
   const TOKEN_RE_CHECK = /\{\{\w+\}\}/;
+
+  function interpolateMatch(match: Binding['match']): Binding['match'] {
+    const result: Binding['match'] = {
+      channel: interpolate(match.channel, resolvedVars),
+    };
+    if (match.accountId) result.accountId = interpolate(match.accountId, resolvedVars);
+    if (match.peer) {
+      result.peer = {
+        kind: interpolate(match.peer.kind, resolvedVars) as 'direct' | 'group' | 'channel',
+        id: interpolate(match.peer.id, resolvedVars),
+      };
+    }
+    if (match.guildId) result.guildId = interpolate(match.guildId, resolvedVars);
+    if (match.teamId) result.teamId = interpolate(match.teamId, resolvedVars);
+    if (match.roles) result.roles = match.roles;
+    return result;
+  }
+
+  function matchHasUnresolved(match: Binding['match']): string | null {
+    if (TOKEN_RE_CHECK.test(match.channel)) return match.channel;
+    if (match.accountId && TOKEN_RE_CHECK.test(match.accountId)) return match.accountId;
+    if (match.peer?.kind && TOKEN_RE_CHECK.test(match.peer.kind)) return match.peer.kind;
+    if (match.peer?.id && TOKEN_RE_CHECK.test(match.peer.id)) return match.peer.id;
+    if (match.guildId && TOKEN_RE_CHECK.test(match.guildId)) return match.guildId;
+    if (match.teamId && TOKEN_RE_CHECK.test(match.teamId)) return match.teamId;
+    return null;
+  }
+
   const resolvedBindings: Binding[] = (manifest.bindings ?? [])
-    .map((b) => ({ ...b, channel: interpolate(b.channel, resolvedVars) }))
+    .map((b) => ({ ...b, match: interpolateMatch(b.match) }))
+    .map((b) => {
+      // Prune empty optional fields from the match object
+      const pruned = pruneMatchObject(b.match as unknown as Record<string, unknown>);
+      return { ...b, match: pruned as unknown as Binding['match'] };
+    })
     .filter((b) => {
-      if (b.channel.trim() === '') return false;
-      if (TOKEN_RE_CHECK.test(b.channel)) {
+      if (b.match.channel.trim() === '') return false;
+      const unresolved = matchHasUnresolved(b.match);
+      if (unresolved) {
         console.log(
-          `${icons.warning} ${chalk.yellow(`Skipping binding "${b.channel}" → ${b.agent}: unresolved variable`)}`,
+          `${icons.warning} ${chalk.yellow(`Skipping binding "${unresolved}" → ${b.agent}: unresolved variable`)}`,
         );
         return false;
       }
@@ -269,7 +339,7 @@ async function _install(
             skipAnnotation = ' (bare channel — shadows main, would be skipped)';
           }
         }
-        console.log(`  + Binding ${cb.binding.channel} → ${resolvedAgentId}${skipAnnotation}`);
+        console.log(`  + Binding ${cb.binding.match.channel} → ${resolvedAgentId}${skipAnnotation}`);
       }
     }
     for (const cronEntry of manifest.cron ?? []) {
@@ -414,6 +484,28 @@ async function _install(
     }
   }
 
+  // Install skills via gateway if available
+  if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
+    const skillResults = await installSkills(manifest.dependencies.skills, {
+      gatewayUrl: options.gatewayUrl,
+      gatewayToken: options.gatewayToken,
+      gatewayPassword: options.gatewayPassword,
+      config,
+    });
+
+    for (const result of skillResults) {
+      if (result.status === 'installed') {
+        console.log(`  ${icons.success} Skill "${result.name}" installed`);
+      } else if (result.status === 'already_installed') {
+        // Silent — no output needed for already installed skills
+      } else if (result.status === 'skipped') {
+        console.log(`  ${icons.warning} Skill "${result.name}" skipped (gateway unavailable)`);
+      } else if (result.status === 'failed') {
+        console.warn(`  ${icons.warning} Skill "${result.name}" installation failed: ${result.error}`);
+      }
+    }
+  }
+
   // Per-service dependency warnings
   if (manifest.dependencies?.services?.length) {
     const required = manifest.dependencies.services.filter((s) => s.required);
@@ -473,7 +565,7 @@ async function _install(
               ? chalk.yellow(' (not configured)')
               : '';
         console.log(
-          `  ${cb.binding.channel} → ${namespace}-${cb.binding.agent}${statusTag}`,
+          `  ${cb.binding.match.channel} → ${namespace}-${cb.binding.agent}${statusTag}`,
         );
       }
     }
@@ -513,7 +605,7 @@ async function _install(
     );
     if ((hasUnconfigured || hasBare) && !options.merge) {
       const choices = classifiedBindingsList.map((cb) => ({
-        name: `${cb.binding.channel} → ${namespace}-${cb.binding.agent} [${cb.status}${cb.isBare && cb.status !== 'unconfigured' ? ', bare' : ''}]`,
+        name: `${cb.binding.match.channel} → ${namespace}-${cb.binding.agent} [${cb.status}${cb.isBare && cb.status !== 'unconfigured' ? ', bare' : ''}]`,
         value: cb.binding,
         checked: cb.status !== 'unconfigured' && !cb.isBare,
       }));
@@ -690,6 +782,8 @@ async function _install(
       name: slug,
       workspace: resolveWorkspacePath(agentId),
       model: agentDef.model,
+      tools: agentDef.tools as Record<string, unknown> | undefined,
+      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     });
   }
 
@@ -704,7 +798,7 @@ async function _install(
     }
     const openClawBinding: OpenClawBinding = {
       agentId: resolvedAgentId,
-      match: { channel: binding.channel },
+      match: binding.match,
     };
     patchedConfig = addBinding(patchedConfig, openClawBinding);
     openClawBindings.push(openClawBinding);

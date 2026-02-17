@@ -44,7 +44,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
@@ -72,7 +72,7 @@ describe('computeMigrationPlan', () => {
           description: 'Researcher',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
     };
     const idMap = new Map([
       ['triage', 'testns-triage'],
@@ -147,7 +147,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     // Different hash = file changed
@@ -175,7 +175,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
@@ -225,7 +225,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
@@ -259,7 +259,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
       cron: [
         {
           schedule: '0 10 * * *', // Changed schedule
@@ -293,7 +293,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
       agentToAgent: { triage: ['manager'] },
     };
     const idMap = new Map([['triage', 'testns-triage']]);
@@ -321,7 +321,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: 'slack', agent: 'triage' }],
+      bindings: [{ match: { channel: 'slack' }, agent: 'triage' }],
       agentToAgent: { triage: ['manager', 'researcher'] },
     };
     const idMap = new Map([['triage', 'testns-triage']]);
@@ -352,7 +352,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
@@ -382,7 +382,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };
@@ -414,7 +414,7 @@ describe('computeMigrationPlan', () => {
           description: 'Triage',
         },
       },
-      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'triage' }],
+      bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'triage' }],
     };
     const idMap = new Map([['triage', 'testns-triage']]);
     const newHashes = { 'testns-triage:SOUL.md': 'hash-a' };

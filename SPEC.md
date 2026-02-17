@@ -115,7 +115,7 @@ In v1.0, the `type` field is **metadata only** - used for marketplace filtering 
 }
 ```
 
-The `openclaw` field specifies a semver range for the required OpenClaw version.
+The `openclaw` field specifies a semver range for the required OpenClaw version. This constraint is **enforced at install time** — the installer checks the running OpenClaw version (via Gateway status RPC or local `openclaw --version` CLI) and aborts if the version does not satisfy the range. Use the `--skip-compat` flag to override this check.
 
 ### Namespace
 
@@ -171,7 +171,7 @@ Each agent is defined as a key-value pair in the `agents` object, where the key 
       "role": "coordinator",
       "model": "anthropic/claude-opus-4-6",
       "tools": {
-        "allow": ["web-search", "file-read"]
+        "allow": ["web_search", "read"]
       },
       "sandbox": {
         "network": true,
@@ -240,48 +240,63 @@ Reef utilizes OpenClaw's native `sessions` capability via Gateway RPC. For every
 
 ### Bindings
 
-Channel routing rules for connecting agents to external channels (e.g., Slack, email):
+Channel routing rules for connecting agents to external channels (e.g., Slack, Telegram, Discord):
 
 ```json
 {
   "bindings": [
     {
-      "channel": "slack:#support",
+      "match": {
+        "channel": "slack",
+        "peer": { "kind": "channel", "id": "#support" }
+      },
       "agent": "triage"
     }
   ]
 }
 ```
 
+Each binding is a `{ match, agent }` object. The `match` object specifies which incoming messages to route to the named agent.
+
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `channel` | `string` | Yes | Channel identifier |
+| `match` | `object` | Yes | Rich match object for OpenClaw routing |
+| `match.channel` | `string` | Yes | Channel token (`slack`, `telegram`, `discord`, `teams`) |
+| `match.accountId` | `string` | No | Specific account, or `*` for any |
+| `match.peer` | `object` | No | Peer targeting — requires both `kind` and `id` |
+| `match.peer.kind` | `string` | No | Peer kind (e.g., `direct`, `group`, `channel`). Accepts any string including `{{VARIABLE}}` tokens |
+| `match.peer.id` | `string` | No | Peer identifier (e.g., `#ops`, `12345`) |
+| `match.guildId` | `string` | No | Discord guild ID |
+| `match.teamId` | `string` | No | Slack team ID |
+| `match.roles` | `string[]` | No | Discord roles — ANY matching role satisfies (overlap semantics) |
 | `agent` | `string` | Yes | Agent slug to bind |
+
+#### Channel Tokens
+
+The `match.channel` field is a **channel token** — a simple platform identifier, not a `<type>:<scope>` compound string. Supported tokens:
+
+| Token | Platform |
+|-------|----------|
+| `slack` | Slack |
+| `telegram` | Telegram |
+| `discord` | Discord |
+| `teams` | Microsoft Teams |
+
+Peer targeting (which specific channel, group, or DM to route) is expressed via the optional `match.peer` field, not embedded in the channel string.
+
+Bindings without a `peer` field shadow the main agent and receive ALL messages on that channel. The installer unchecks bare bindings by default in the binding selection checkbox and logs a skip warning.
 
 #### Functional vs. Interaction Channels
 
 Bindings fall into two categories:
 
-- **Functional channels** are intrinsic to the formation's design — part of what the formation *does*. Example: a monitor agent that polls `reddit:r/openreef`. Hardcode these.
+- **Functional channels** are intrinsic to the formation's design — part of what the formation *does*. Example: a monitor agent that polls a specific channel. Hardcode these.
 
-- **Interaction channels** are how the *user* communicates with the formation's coordinator. These are user preferences, not formation decisions. Use `{{VARIABLE}}` references for these.
-
-#### Channel Format
-
-Channels use `<type>:<scope>` form:
-
-| Example | Type | Scope |
-|---------|------|-------|
-| `slack:#ops` | slack | #ops channel |
-| `telegram:12345` | telegram | chat ID |
-| `discord:general` | discord | channel name |
-| `teams:ops-room` | teams | channel name |
-
-Bare channels (no scope, e.g., `slack`) shadow the main agent and receive ALL messages on that channel. The installer unchecks bare bindings by default in the binding selection checkbox and logs a skip warning.
+- **Interaction channels** are how the *user* communicates with the formation's coordinator. These are user preferences, not formation decisions. Use `{{VARIABLE}}` references in individual match fields for these.
 
 #### Convention
 
-Declare a variable for interaction channels. The user sets the value at install time:
+Declare variables for interaction channel match fields. The user sets values at install time:
 
 ```json
 {
@@ -289,11 +304,30 @@ Declare a variable for interaction channels. The user sets the value at install 
     "INTERACTION_CHANNEL": {
       "type": "string",
       "required": true,
-      "description": "Primary contact channel in <type>:<scope> form (examples: slack:#ops, telegram:12345, teams:ops-room)"
+      "description": "Channel token (e.g., slack, telegram, teams)"
+    },
+    "INTERACTION_PEER_KIND": {
+      "type": "string",
+      "required": true,
+      "description": "Peer kind (e.g., channel, group, direct)"
+    },
+    "INTERACTION_PEER_ID": {
+      "type": "string",
+      "required": true,
+      "description": "Peer identifier (e.g., #ops, 12345)"
     }
   },
   "bindings": [
-    { "channel": "{{INTERACTION_CHANNEL}}", "agent": "coordinator" }
+    {
+      "match": {
+        "channel": "{{INTERACTION_CHANNEL}}",
+        "peer": {
+          "kind": "{{INTERACTION_PEER_KIND}}",
+          "id": "{{INTERACTION_PEER_ID}}"
+        }
+      },
+      "agent": "coordinator"
+    }
   ]
 }
 ```
@@ -334,8 +368,8 @@ Skills are ClawHub packages that provide tools/capabilities to agents:
 {
   "dependencies": {
     "skills": {
-      "web-search": "^1.2.0",
-      "file-read": "^2.0.0"
+      "web_search": "^1.2.0",
+      "read": "^2.0.0"
     },
     "services": [
       {
@@ -420,7 +454,7 @@ The lockfile pins exact versions of skill dependencies for reproducible, supply-
 
 ## Variable Interpolation
 
-All text files in a formation (`*.md`, `.env.example`, etc.) and binding channel values in `reef.json` support `{{VARIABLE_NAME}}` substitution.
+All text files in a formation (`*.md`, `.env.example`, etc.) and binding match fields in `reef.json` support `{{VARIABLE_NAME}}` substitution.
 
 ### Rules
 
@@ -824,7 +858,7 @@ A full `reef.json` for a customer support team formation:
       "role": "router",
       "model": "anthropic/claude-sonnet-4-5",
       "tools": {
-        "allow": ["web-search"]
+        "allow": ["web_search"]
       },
       "sandbox": {
         "network": true,
@@ -837,7 +871,7 @@ A full `reef.json` for a customer support team formation:
       "role": "responder",
       "model": "anthropic/claude-sonnet-4-5",
       "tools": {
-        "allow": ["file-read", "web-search"]
+        "allow": ["read", "web_search"]
       },
       "sandbox": {
         "network": true,
@@ -850,7 +884,7 @@ A full `reef.json` for a customer support team formation:
       "role": "escalation",
       "model": "anthropic/claude-sonnet-4-5",
       "tools": {
-        "allow": ["email-send"]
+        "allow": ["email_send"]
       },
       "sandbox": {
         "network": true,
@@ -865,7 +899,10 @@ A full `reef.json` for a customer support team formation:
   },
   "bindings": [
     {
-      "channel": "slack:#support",
+      "match": {
+        "channel": "slack",
+        "peer": { "kind": "channel", "id": "#support" }
+      },
       "agent": "triage"
     }
   ],
@@ -879,9 +916,9 @@ A full `reef.json` for a customer support team formation:
   ],
   "dependencies": {
     "skills": {
-      "web-search": "^1.2.0",
-      "file-read": "^2.0.0",
-      "email-send": "^1.0.0"
+      "web_search": "^1.2.0",
+      "read": "^2.0.0",
+      "email_send": "^1.0.0"
     },
     "services": [
       {

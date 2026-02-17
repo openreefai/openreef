@@ -21,6 +21,8 @@ import {
   removeBinding,
   setAgentToAgent,
   removeAgentToAgent,
+  recomputeAgentToAgent,
+  updateAgentEntry,
   extractChannelType,
   isBareChannel,
   getConfiguredChannels,
@@ -38,6 +40,8 @@ import { listFiles } from '../utils/fs.js';
 import { computeFormationDiff, DiffValidationError } from '../core/diff-engine.js';
 import { displayMigrationPlan } from '../utils/plan-display.js';
 import { enforceLockfile } from '../core/skills-registry.js';
+import { installSkills } from '../core/skills-installer.js';
+import { checkOpenClawCompatibility } from '../core/compat-check.js';
 import { icons, header, label, value, table } from '../utils/output.js';
 import type { ReefManifest } from '../types/manifest.js';
 import type {
@@ -54,6 +58,7 @@ export interface UpdateOptions {
   noEnv?: boolean;
   dryRun?: boolean;
   allowChannelShadow?: boolean;
+  skipCompat?: boolean;
   gatewayUrl?: string;
   gatewayToken?: string;
   gatewayPassword?: string;
@@ -114,6 +119,36 @@ async function _update(
 
   spinner.succeed('Formation loaded and validated');
 
+  // Compatibility check
+  if (manifest.compatibility?.openclaw && !options.skipCompat) {
+    const compatSpinner = ora('Checking OpenClaw compatibility...').start();
+    const compatResult = await checkOpenClawCompatibility(
+      manifest.compatibility.openclaw,
+      {
+        gatewayUrl: options.gatewayUrl,
+        gatewayToken: options.gatewayToken,
+        gatewayPassword: options.gatewayPassword,
+      },
+    );
+
+    if (!compatResult.compatible) {
+      compatSpinner.fail('Compatibility check failed');
+      console.error(`  ${icons.error} ${compatResult.error}`);
+      if (compatResult.openclawVersion) {
+        console.error(
+          `  Running: OpenClaw ${compatResult.openclawVersion} (via ${compatResult.source})`,
+        );
+        console.error(`  Required: ${compatResult.requiredRange}`);
+      }
+      console.error('  Use --skip-compat to override.');
+      process.exit(1);
+    }
+
+    compatSpinner.succeed(
+      `OpenClaw ${compatResult.openclawVersion} satisfies ${compatResult.requiredRange}`,
+    );
+  }
+
   // Lockfile enforcement
   if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
     try {
@@ -124,6 +159,27 @@ async function _update(
     } catch (err) {
       console.error(`${icons.error} ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    }
+  }
+
+  // Install skills via gateway if available
+  if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
+    const skillResults = await installSkills(manifest.dependencies.skills, {
+      gatewayUrl: options.gatewayUrl,
+      gatewayToken: options.gatewayToken,
+      gatewayPassword: options.gatewayPassword,
+    });
+
+    for (const result of skillResults) {
+      if (result.status === 'installed') {
+        console.log(`  ${icons.success} Skill "${result.name}" installed`);
+      } else if (result.status === 'already_installed') {
+        // Silent — no output needed for already installed skills
+      } else if (result.status === 'skipped') {
+        console.log(`  ${icons.warning} Skill "${result.name}" skipped (gateway unavailable)`);
+      } else if (result.status === 'failed') {
+        console.warn(`  ${icons.warning} Skill "${result.name}" installation failed: ${result.error}`);
+      }
     }
   }
 
@@ -175,7 +231,7 @@ async function _update(
       const status = configuredChannels === null ? 'unknown' as const
         : configuredChannels.has(channelType) ? 'configured' as const
         : 'unconfigured' as const;
-      const bare = isBareChannel(b.binding.match.channel);
+      const bare = !b.binding.match.peer;
       return { change: b, channelType, status, isBare: bare };
     });
   const removeBindings = plan.bindings.filter(b => b.type === 'remove');
@@ -437,6 +493,17 @@ async function _update(
       name: change.slug,
       workspace: resolveWorkspacePath(change.agentId),
       model: agentDef.model,
+      tools: agentDef.tools as Record<string, unknown> | undefined,
+      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
+    });
+  }
+  // Update existing agents (reconcile model/tools/sandbox changes)
+  for (const change of plan.agents.filter((a) => a.type === 'update')) {
+    const agentDef = manifest.agents[change.slug];
+    patchedConfig = updateAgentEntry(patchedConfig, change.agentId, {
+      model: agentDef.model,
+      tools: agentDef.tools as Record<string, unknown> | undefined,
+      sandbox: agentDef.sandbox as Record<string, unknown> | undefined,
     });
   }
   for (const b of finalAddBindings) {
@@ -444,12 +511,13 @@ async function _update(
     openClawBindings.push(b.binding);
   }
 
-  // Update a2a
+  // Update a2a — recompute from full topology on any change
   if (plan.a2a.length > 0) {
-    const hasNewEdges = plan.a2a.some((e) => e.type === 'add' || e.type === 'reapply');
-    if (hasNewEdges) {
-      patchedConfig = setAgentToAgent(patchedConfig, namespace);
-    }
+    patchedConfig = recomputeAgentToAgent(
+      patchedConfig,
+      namespace,
+      manifest.agentToAgent,
+    );
   }
 
   const { path: configPath } = await readConfig();
@@ -552,8 +620,13 @@ async function _update(
   }
 
   const a2aState = existingState.agentToAgent ?? { wasEnabled: false, allowAdded: false };
-  if (manifest.agentToAgent && Object.keys(manifest.agentToAgent).length > 0) {
+  const hasTopology = manifest.agentToAgent &&
+    Object.values(manifest.agentToAgent).some((targets) => targets.length > 0);
+  if (hasTopology) {
     a2aState.allowAdded = true;
+  } else if (plan.a2a.some((e) => e.type === 'remove')) {
+    // Topology was emptied — mark as no longer added
+    a2aState.allowAdded = false;
   }
 
   // Persist source snapshot so sourcePath survives temp dir cleanup

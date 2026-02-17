@@ -216,6 +216,77 @@ export function removeAgentToAgent(
   return config;
 }
 
+/**
+ * Recompute the A2A allow list from the full current topology.
+ *
+ * Rules:
+ * 1. Empty topology → disable A2A, clear allow for this namespace
+ * 2. Non-empty topology → enable A2A, set allow to namespace pattern
+ * 3. Never touch entries outside the formation's namespace
+ * 4. Deterministically sort the allow array
+ */
+export function recomputeAgentToAgent(
+  config: Record<string, unknown>,
+  namespace: string,
+  topology: Record<string, string[]> | undefined,
+): Record<string, unknown> {
+  if (!config.tools) config.tools = {};
+  const tools = config.tools as Record<string, unknown>;
+  if (!tools.agentToAgent) tools.agentToAgent = {};
+  const a2a = tools.agentToAgent as Record<string, unknown>;
+  if (!Array.isArray(a2a.allow)) a2a.allow = [];
+
+  const pattern = `${namespace}-*`;
+  const currentAllow = a2a.allow as string[];
+
+  // Separate entries: ours vs other namespaces
+  const otherEntries = currentAllow.filter((p) => p !== pattern);
+
+  const hasEdges = topology && Object.values(topology).some((targets) => targets.length > 0);
+
+  if (!hasEdges) {
+    // Empty topology: remove our pattern, only disable if no other entries remain
+    a2a.allow = otherEntries.sort();
+    if (otherEntries.length === 0) {
+      a2a.enabled = false;
+    }
+  } else {
+    // Non-empty topology: ensure our pattern is present
+    a2a.enabled = true;
+    if (!otherEntries.includes(pattern)) {
+      a2a.allow = [...otherEntries, pattern].sort();
+    } else {
+      a2a.allow = otherEntries.sort();
+    }
+  }
+
+  return config;
+}
+
+/**
+ * Add an updateAgentEntry function for reconciling changes to existing agents.
+ * Merges model/tools/sandbox changes into an existing agent entry.
+ */
+export function updateAgentEntry(
+  config: Record<string, unknown>,
+  agentId: string,
+  updates: { model?: string; tools?: Record<string, unknown>; sandbox?: Record<string, unknown> },
+): Record<string, unknown> {
+  const list = ensureAgentsList(config);
+  const normalizedId = agentId.trim().toLowerCase();
+  const entry = list.find(
+    (a) => String((a as Record<string, unknown>).id).trim().toLowerCase() === normalizedId,
+  ) as Record<string, unknown> | undefined;
+
+  if (!entry) return config;
+
+  if (updates.model !== undefined) entry.model = updates.model;
+  if (updates.tools !== undefined) entry.tools = updates.tools;
+  if (updates.sandbox !== undefined) entry.sandbox = updates.sandbox;
+
+  return config;
+}
+
 export function bindingsEqual(a: OpenClawBinding, b: OpenClawBinding): boolean {
   return canonicalJson(a) === canonicalJson(b);
 }
@@ -237,15 +308,41 @@ function canonicalJson(obj: unknown): string {
   return '{' + sorted.join(',') + '}';
 }
 
-// ─── Channel detection utilities ─────────────────────────────────
+// ─── Match object utilities ─────────────────────────────────
 
 /**
- * Returns true when the channel string has no `:scope` suffix.
- * Bare channels like "telegram" shadow the main agent because they route
+ * Returns true when a binding has no peer targeting.
+ * Channel-only bindings shadow the main agent because they route
  * ALL messages on that channel to the formation agent.
  */
 export function isBareChannel(channel: string): boolean {
   return !channel.trim().includes(':');
+}
+
+/**
+ * Strips undefined, null, and empty-string fields from a match object.
+ * Prevents silent routing misbehavior from empty optional fields.
+ */
+export function pruneMatchObject(
+  match: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(match)) {
+    if (val === undefined || val === null || val === '') continue;
+    if (typeof val === 'object' && !Array.isArray(val) && val !== null) {
+      const pruned = pruneMatchObject(val as Record<string, unknown>);
+      // Drop peer if it has no remaining fields (kind/id both empty)
+      if (Object.keys(pruned).length > 0) {
+        result[key] = pruned;
+      }
+    } else if (Array.isArray(val)) {
+      const filtered = val.filter((v) => v !== undefined && v !== null && v !== '');
+      if (filtered.length > 0) result[key] = filtered;
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
 }
 
 export interface ClassifiedBinding {
@@ -303,7 +400,7 @@ export function classifyBindings(
   configuredChannels: Set<string> | null,
 ): ClassifiedBinding[] {
   return bindings.map((binding) => {
-    const channelType = extractChannelType(binding.channel);
+    const channelType = extractChannelType(binding.match.channel);
     let status: ClassifiedBinding['status'];
     if (configuredChannels === null) {
       status = 'unknown';
@@ -312,7 +409,7 @@ export function classifyBindings(
     } else {
       status = 'unconfigured';
     }
-    return { binding, channelType, status, isBare: isBareChannel(binding.channel) };
+    return { binding, channelType, status, isBare: !binding.match.peer };
   });
 }
 

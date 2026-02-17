@@ -90,7 +90,10 @@ export async function inspect(path: string): Promise<void> {
       [chalk.dim('Channel'), chalk.dim('Agent')],
     ];
     for (const b of manifest.bindings) {
-      bindingRows.push([value(b.channel), value(b.agent)]);
+      const channelDisplay = b.match.peer
+        ? `${b.match.channel} (${b.match.peer.kind}:${b.match.peer.id})`
+        : b.match.channel;
+      bindingRows.push([value(channelDisplay), value(b.agent)]);
     }
     console.log(table(bindingRows));
   }

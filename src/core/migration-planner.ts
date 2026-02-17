@@ -1,7 +1,7 @@
-import { bindingsEqual } from './config-patcher.js';
+import { bindingsEqual, pruneMatchObject } from './config-patcher.js';
 import { interpolate } from './template-interpolator.js';
 import type { FormationState, OpenClawBinding, CronJobState } from '../types/state.js';
-import type { ReefManifest, CronJob as ManifestCron } from '../types/manifest.js';
+import type { ReefManifest, Binding, CronJob as ManifestCron } from '../types/manifest.js';
 
 export interface AgentChange {
   slug: string;
@@ -94,11 +94,45 @@ export function computeMigrationPlan(
     }
   }
 
-  // Binding changes — interpolate {{VARIABLE}} tokens in channels
+  // Binding changes — interpolate {{VARIABLE}} tokens in match object fields
   const TOKEN_RE_CHECK = /\{\{\w+\}\}/;
+
+  function interpolateMatch(match: Binding['match']): Binding['match'] {
+    const result: Binding['match'] = {
+      channel: interpolate(match.channel, resolvedVars),
+    };
+    if (match.accountId) result.accountId = interpolate(match.accountId, resolvedVars);
+    if (match.peer) {
+      result.peer = {
+        kind: interpolate(match.peer.kind, resolvedVars) as 'direct' | 'group' | 'channel',
+        id: interpolate(match.peer.id, resolvedVars),
+      };
+    }
+    if (match.guildId) result.guildId = interpolate(match.guildId, resolvedVars);
+    if (match.teamId) result.teamId = interpolate(match.teamId, resolvedVars);
+    if (match.roles) result.roles = match.roles;
+    return result;
+  }
+
+  function matchHasUnresolved(match: Binding['match']): boolean {
+    const fields = [
+      match.channel,
+      match.accountId,
+      match.peer?.kind,
+      match.peer?.id,
+      match.guildId,
+      match.teamId,
+    ].filter(Boolean);
+    return fields.some((f) => TOKEN_RE_CHECK.test(f!));
+  }
+
   const resolvedBindings = (manifest.bindings ?? [])
-    .map((b) => ({ ...b, channel: interpolate(b.channel, resolvedVars) }))
-    .filter((b) => b.channel.trim() !== '' && !TOKEN_RE_CHECK.test(b.channel));
+    .map((b) => ({ ...b, match: interpolateMatch(b.match) }))
+    .map((b) => {
+      const pruned = pruneMatchObject(b.match as unknown as Record<string, unknown>);
+      return { ...b, match: pruned as unknown as Binding['match'] };
+    })
+    .filter((b) => b.match.channel.trim() !== '' && !matchHasUnresolved(b.match));
 
   const newBindings: OpenClawBinding[] = [];
   for (const binding of resolvedBindings) {
@@ -106,7 +140,7 @@ export function computeMigrationPlan(
     if (!resolvedAgentId) continue;
     newBindings.push({
       agentId: resolvedAgentId,
-      match: { channel: binding.channel },
+      match: binding.match,
     });
   }
 

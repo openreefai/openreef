@@ -23,12 +23,12 @@
     },
     "INTERACTION_CHANNEL": {
       "type": "string",
-      "description": "Primary contact channel in <type>:<scope> form (examples: slack:#ops, telegram:12345, teams:ops-room)",
+      "description": "Primary contact channel token (examples: slack, telegram, teams)",
       "required": false
     }
   },
   "bindings": [
-    { "channel": "{{INTERACTION_CHANNEL}}", "agent": "manager" }
+    { "match": { "channel": "{{INTERACTION_CHANNEL}}" }, "agent": "manager" }
   ],
   "agents": {
     "manager": {

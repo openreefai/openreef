@@ -90,7 +90,7 @@ describe('structural-validator', () => {
     await createAgentDir(tempDir, 'beta');
 
     const manifest = baseManifest({
-      bindings: [{ channel: 'slack:#test', agent: 'ghost' }],
+      bindings: [{ match: { channel: 'slack:#test' }, agent: 'ghost' }],
     });
     const result = await validateStructure(manifest, tempDir);
     expect(result.valid).toBe(false);
@@ -146,7 +146,7 @@ describe('structural-validator', () => {
     await createAgentDir(tempDir, 'beta');
 
     const manifest = baseManifest({
-      bindings: [{ channel: '{{UNDECLARED_VAR}}', agent: 'alpha' }],
+      bindings: [{ match: { channel: '{{UNDECLARED_VAR}}' }, agent: 'alpha' }],
       variables: {},
     });
     const result = await validateStructure(manifest, tempDir);
@@ -161,7 +161,7 @@ describe('structural-validator', () => {
     await createAgentDir(tempDir, 'beta');
 
     const manifest = baseManifest({
-      bindings: [{ channel: '{{INTERACTION_CHANNEL}}', agent: 'alpha' }],
+      bindings: [{ match: { channel: '{{INTERACTION_CHANNEL}}' }, agent: 'alpha' }],
       variables: {
         INTERACTION_CHANNEL: { type: 'string', description: 'Channel for interactions' },
       },
