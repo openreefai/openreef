@@ -311,9 +311,10 @@ function canonicalJson(obj: unknown): string {
 // ─── Match object utilities ─────────────────────────────────
 
 /**
- * Returns true when a binding has no peer targeting.
- * Channel-only bindings shadow the main agent because they route
- * ALL messages on that channel to the formation agent.
+ * Returns true only when a binding channel value looks like a legacy
+ * bare string (no colon, no match-object structure).  With the migration
+ * to rich match objects, channel-only bindings (no peer) are the standard
+ * pattern and should NOT be treated as bare.
  */
 export function isBareChannel(channel: string): boolean {
   return !channel.trim().includes(':');
@@ -409,7 +410,9 @@ export function classifyBindings(
     } else {
       status = 'unconfigured';
     }
-    return { binding, channelType, status, isBare: !binding.match.peer };
+    // With match objects, channel-only bindings (no peer) are the standard
+    // pattern — not "bare".  isBare is always false for match-object bindings.
+    return { binding, channelType, status, isBare: false };
   });
 }
 

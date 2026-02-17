@@ -162,27 +162,6 @@ async function _update(
     }
   }
 
-  // Install skills via gateway if available
-  if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
-    const skillResults = await installSkills(manifest.dependencies.skills, {
-      gatewayUrl: options.gatewayUrl,
-      gatewayToken: options.gatewayToken,
-      gatewayPassword: options.gatewayPassword,
-    });
-
-    for (const result of skillResults) {
-      if (result.status === 'installed') {
-        console.log(`  ${icons.success} Skill "${result.name}" installed`);
-      } else if (result.status === 'already_installed') {
-        // Silent — no output needed for already installed skills
-      } else if (result.status === 'skipped') {
-        console.log(`  ${icons.warning} Skill "${result.name}" skipped (gateway unavailable)`);
-      } else if (result.status === 'failed') {
-        console.warn(`  ${icons.warning} Skill "${result.name}" installation failed: ${result.error}`);
-      }
-    }
-  }
-
   if (plan.isEmpty) {
     // Always persist snapshot — even on no-op — to fix dead sourcePath
     const snapshotPath = await persistSourceSnapshot(
@@ -231,8 +210,7 @@ async function _update(
       const status = configuredChannels === null ? 'unknown' as const
         : configuredChannels.has(channelType) ? 'configured' as const
         : 'unconfigured' as const;
-      const bare = !b.binding.match.peer;
-      return { change: b, channelType, status, isBare: bare };
+      return { change: b, channelType, status, isBare: false };
     });
   const removeBindings = plan.bindings.filter(b => b.type === 'remove');
 
@@ -263,6 +241,27 @@ async function _update(
     console.log('');
     console.log(label('Dry run — no changes applied.'));
     return;
+  }
+
+  // Install skills via gateway if available
+  if (manifest.dependencies?.skills && Object.keys(manifest.dependencies.skills).length > 0) {
+    const skillResults = await installSkills(manifest.dependencies.skills, {
+      gatewayUrl: options.gatewayUrl,
+      gatewayToken: options.gatewayToken,
+      gatewayPassword: options.gatewayPassword,
+    });
+
+    for (const result of skillResults) {
+      if (result.status === 'installed') {
+        console.log(`  ${icons.success} Skill "${result.name}" installed`);
+      } else if (result.status === 'already_installed') {
+        // Silent — no output needed for already installed skills
+      } else if (result.status === 'skipped') {
+        console.log(`  ${icons.warning} Skill "${result.name}" skipped (gateway unavailable)`);
+      } else if (result.status === 'failed') {
+        console.warn(`  ${icons.warning} Skill "${result.name}" installation failed: ${result.error}`);
+      }
+    }
   }
 
   // 8. Channel-aware filtering for net-new bindings + confirm

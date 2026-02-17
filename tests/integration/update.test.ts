@@ -263,7 +263,7 @@ describe('reef update', () => {
     expect(state?.bindings[0].match.channel).toBe('telegram');
   });
 
-  it('update --yes skips bare net-new bindings by default', async () => {
+  it('update --yes wires channel-only net-new bindings (match objects are not bare)', async () => {
     // Install formation with a scoped telegram binding
     await writeFile(
       join(formationDir, 'reef.json'),
@@ -292,7 +292,7 @@ describe('reef update', () => {
     config.channels = { telegram: { enabled: true } };
     await writeConfig(configPath, config, { silent: true });
 
-    // Update manifest to add a bare telegram binding
+    // Update manifest to add a channel-only telegram binding
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -318,13 +318,10 @@ describe('reef update', () => {
 
     await update(formationDir, { yes: true });
 
-    // Assert: config has only the scoped binding (bare one skipped)
+    // Assert: config has both bindings — channel-only is intentional with match objects
     const { config: updatedConfig } = await readConfig(configPath);
     const bindings = updatedConfig.bindings as Record<string, unknown>[];
-    expect(bindings).toHaveLength(1);
-    expect((bindings[0] as Record<string, unknown>).match).toEqual({
-      channel: 'telegram', peer: { kind: 'group', id: 'group-123' },
-    });
+    expect(bindings).toHaveLength(2);
   });
 
   it('update --yes --allow-channel-shadow wires bare net-new bindings', async () => {

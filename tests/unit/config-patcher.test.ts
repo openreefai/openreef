@@ -557,10 +557,10 @@ describe('config-patcher', () => {
       expect(result[0].status).toBe('configured');
     });
 
-    it('sets isBare correctly', () => {
+    it('sets isBare to false for all match-object bindings', () => {
       const result = classifyBindings(bindings, null);
-      expect(result[0].isBare).toBe(false); // slack with peer — not bare
-      expect(result[1].isBare).toBe(true);  // telegram without peer — bare
+      expect(result[0].isBare).toBe(false); // slack with peer
+      expect(result[1].isBare).toBe(false); // telegram without peer — still not bare (match objects are intentional)
     });
   });
 

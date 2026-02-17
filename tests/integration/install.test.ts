@@ -522,7 +522,7 @@ describe('reef install', () => {
     expect(agentsList.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('--yes skips bare channel bindings by default', async () => {
+  it('--yes wires channel-only bindings (match objects are not bare)', async () => {
     // Config with telegram configured
     await writeFile(
       join(tempHome, 'openclaw.json'),
@@ -535,7 +535,7 @@ describe('reef install', () => {
       }),
     );
 
-    // Formation with bare telegram and scoped slack bindings
+    // Formation with channel-only and peer-targeted telegram bindings
     await writeFile(
       join(formationDir, 'reef.json'),
       JSON.stringify({
@@ -543,7 +543,7 @@ describe('reef install', () => {
         type: 'solo',
         name: 'test-formation',
         version: '1.0.0',
-        description: 'Test formation with bare binding',
+        description: 'Test formation with channel-only binding',
         namespace: 'testns',
         variables: {
           MISSION: { type: 'string', default: 'support' },
@@ -564,17 +564,14 @@ describe('reef install', () => {
 
     await install(formationDir, { yes: true });
 
-    // Only the scoped telegram binding should be wired, bare one skipped
+    // Both bindings should be wired — channel-only is intentional with match objects
     const configRaw = await readFile(
       join(tempHome, 'openclaw.json'),
       'utf-8',
     );
     const config = JSON.parse(configRaw);
     const bindings = config.bindings as Record<string, unknown>[];
-    expect(bindings).toHaveLength(1);
-    expect((bindings[0].match as Record<string, unknown>).channel).toBe(
-      'telegram',
-    );
+    expect(bindings).toHaveLength(2);
   });
 
   it('--yes --allow-channel-shadow wires bare channel bindings', async () => {
