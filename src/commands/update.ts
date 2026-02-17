@@ -185,6 +185,24 @@ async function _update(
       };
       await saveState(patchedState);
     }
+
+    // Always reconcile agent runtime config (tools/model/sandbox) even when
+    // source files haven't changed — ensures OpenClaw config stays in sync.
+    const { config: currentConfig } = await readConfig();
+    let reconciledConfig = currentConfig;
+    for (const change of plan.agents) {
+      const agentDef = manifest.agents[change.slug];
+      const normalizedTools = normalizeAgentTools(agentDef.tools);
+      const subagents = buildSubagentConfig(manifest, change.slug, idMap);
+      reconciledConfig = updateAgentEntry(reconciledConfig, change.agentId, {
+        model: agentDef.model,
+        tools: normalizedTools,
+        subagents,
+      });
+    }
+    const { path: configPath } = await readConfig();
+    await writeConfig(configPath, reconciledConfig, { silent: true });
+
     console.log(
       `${icons.success} ${chalk.green('Already up to date.')}`,
     );
