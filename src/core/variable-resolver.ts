@@ -15,6 +15,10 @@ export interface ResolveOptions {
   env?: NodeJS.ProcessEnv;
   /** Allow hints to spawn external processes (e.g., openclaw channels add). */
   allowExternalCommands?: boolean;
+  /** State values from a previous install — checked after env but before defaults. */
+  stateValues?: Record<string, string>;
+  /** Variable names to skip entirely (e.g., deployed-sensitive vars already in runtime). */
+  skipVars?: Set<string>;
 }
 
 export interface ResolveResult {
@@ -47,13 +51,20 @@ export async function resolveVariables(
   const hintContext: VariableHintContext = { env };
 
   for (const [name, config] of Object.entries(variables)) {
-    // Precedence: CLI > .env > env > defaults
+    // Skip deployed-sensitive vars entirely — runtime already has the value
+    if (options.skipVars?.has(name)) {
+      continue;
+    }
+
+    // Precedence: CLI > .env > env > state > defaults
     if (options.cliOverrides?.[name] !== undefined) {
       resolved[name] = options.cliOverrides[name];
     } else if (envFileVars[name] !== undefined) {
       resolved[name] = envFileVars[name];
     } else if (env[name] !== undefined) {
       resolved[name] = env[name]!;
+    } else if (options.stateValues?.[name] !== undefined) {
+      resolved[name] = options.stateValues[name];
     } else if (config.default !== undefined) {
       resolved[name] = String(config.default);
     } else if (options.interactive) {

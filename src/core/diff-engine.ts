@@ -97,7 +97,22 @@ export async function computeFormationDiff(
     );
   }
 
-  // 3. Resolve variables
+  // 3. Pre-compute state awareness so the resolver doesn't prompt for known vars.
+  //    Sensitive vars ($-prefixed) are already deployed — skip them entirely.
+  //    Non-sensitive state vars are passed as defaults (lower priority than CLI/.env/env).
+  const deployedSensitiveVars = new Set<string>();
+  const stateValues: Record<string, string> = {};
+  for (const name of Object.keys(manifest.variables ?? {})) {
+    const stateVal = existingState.variables[name];
+    if (stateVal !== undefined) {
+      if (stateVal.startsWith('$')) {
+        deployedSensitiveVars.add(name);
+      } else {
+        stateValues[name] = stateVal;
+      }
+    }
+  }
+
   const { resolved: resolvedVars, missing } = await resolveVariables(
     manifest.variables ?? {},
     formationPath,
@@ -105,27 +120,13 @@ export async function computeFormationDiff(
       interactive: !options.yes,
       cliOverrides: parseSets(options.set),
       noEnv: options.noEnv,
+      stateValues,
+      skipVars: deployedSensitiveVars,
     },
   );
 
-  // State fallback: non-sensitive vars use stored value; sensitive vars ($-prefixed)
-  // are marked as "deployed" — the runtime already has the real value.
-  const deployedSensitiveVars = new Set<string>();
-  for (const name of Object.keys(manifest.variables ?? {})) {
-    if (resolvedVars[name] !== undefined) continue;
-    const stateVal = existingState.variables[name];
-    if (stateVal !== undefined) {
-      if (stateVal.startsWith('$')) {
-        // Sensitive var already deployed — don't require re-entry
-        deployedSensitiveVars.add(name);
-      } else {
-        resolvedVars[name] = stateVal;
-      }
-    }
-  }
-
   const stillMissing = missing.filter(
-    (name) => resolvedVars[name] === undefined && !deployedSensitiveVars.has(name),
+    (name) => !deployedSensitiveVars.has(name),
   );
   if (stillMissing.length > 0) {
     throw new DiffValidationError(

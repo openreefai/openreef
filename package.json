@@ -1,6 +1,6 @@
 {
   "name": "@openreef/cli",
-  "version": "0.11.10",
+  "version": "0.11.11",
   "workspaces": [
     "packages/*"
   ],
