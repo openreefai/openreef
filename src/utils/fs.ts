@@ -53,14 +53,27 @@ export async function listFiles(dir: string): Promise<string[]> {
 
 export async function scanVariableTokens(dir: string): Promise<string[]> {
   const tokens = new Set<string>();
-  const files = await listFiles(dir);
   const pattern = /\{\{(\w+)\}\}/g;
 
-  for (const file of files) {
-    if (!file.endsWith('.md')) continue;
-    const content = await readFile(join(dir, file), 'utf-8');
+  // Only scan files that get interpolated at runtime (SOUL.md, IDENTITY.md).
+  // Knowledge/static files are reference material read by agents and may
+  // contain example {{VAR}} patterns that should not trigger warnings.
+  const interpolatedFiles = ['SOUL.md', 'IDENTITY.md'];
+
+  for (const file of interpolatedFiles) {
+    let content: string;
+    try {
+      content = await readFile(join(dir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+    // Strip fenced code blocks and inline code spans — they contain
+    // example patterns like {{VAR}} that are documentation, not references.
+    const stripped = content
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]+`/g, '');
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) {
+    while ((match = pattern.exec(stripped)) !== null) {
       tokens.add(match[1]);
     }
   }
